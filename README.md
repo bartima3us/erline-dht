@@ -1,9 +1,21 @@
 ErLine DHT
 =====
 
-Kademlia based Mainline DHT implementation in Erlang.
+- [Introduction](#introduction)
+- [Status](#status)
+- [Tests](#tests)
 
-Build
------
+## <a name="introduction">Introduction</a> ##
 
-    $ rebar3 compile
+Kademlia based Mainline DHT implementation in Erlang. Derivative project from https://github.com/bartima3us/erl-bittorrent
+
+## <a name="status">Status</a> ##
+
+Working is in progress.
+
+## <a name="tests">Tests</a> ##
+
+EUnit tests
+```
+$ make tests
+```

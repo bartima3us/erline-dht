@@ -2,7 +2,7 @@
 %%% @author bartimaeus
 %%% @copyright (C) 2019, sarunas.bartusevicius@gmail.com
 %%% @doc
-%%%
+%%% Mainline DHT messages implementation.
 %%% @end
 %%% Created : 16. Aug 2019 17.10
 %%%-------------------------------------------------------------------
@@ -306,15 +306,20 @@ do_announce_peer_response(TransactionId, NodeId) ->
 
 
 %%  @private
-%%  http://www.bittorrent.org/beps/bep_0005.html#errors
+%%  Do error response. http://www.bittorrent.org/beps/bep_0005.html#errors
 %%
-do_error_response(TransactionId, ErrorCode, ErrorDescription) ->
+do_error_response(TransactionId, ErrorCode, ErrorDescription) when
+    ErrorCode =:= 201;
+    ErrorCode =:= 202;
+    ErrorCode =:= 203;
+    ErrorCode =:= 204
+    ->
     Response = krpc_request(TransactionId, <<"e">>, [ErrorCode, ErrorDescription]),
     erline_dht_bencoding:encode(Response).
 
 
 %%  @private
-%%  http://bittorrent.org/beps/bep_0005.html#krpc-protocol
+%%  Make KRPC request. http://bittorrent.org/beps/bep_0005.html#krpc-protocol
 %%
 krpc_request(TransactionId, Type = <<"q">>, Query, Args) ->
     % Request

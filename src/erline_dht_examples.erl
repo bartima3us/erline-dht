@@ -1,13 +1,13 @@
 %%%-------------------------------------------------------------------
-%%% @author sarunas
-%%% @copyright (C) 2019, <COMPANY>
+%%% @author bartimaeus
+%%% @copyright (C) 2019, sarunas.bartusevicius@gmail.com
 %%% @doc
 %%%
 %%% @end
 %%% Created : 18. Aug 2019 14.19
 %%%-------------------------------------------------------------------
 -module(erline_dht_examples).
--author("sarunas").
+-author("bartimaeus").
 
 %% API
 -export([

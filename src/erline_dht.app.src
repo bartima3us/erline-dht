@@ -1,16 +1,15 @@
 {application, erline_dht,
- [{description, "An OTP application"},
+ [{description, "Kademlia based Mainline DHT implementation."},
   {vsn, "0.1.0"},
   {registered, []},
   {mod, { erline_dht_app, []}},
   {applications,
    [kernel,
-    stdlib
+    stdlib,
+    gproc
    ]},
   {env,[]},
   {modules, []},
-
   {maintainers, []},
-  {licenses, ["Apache 2.0"]},
   {links, []}
  ]}.
