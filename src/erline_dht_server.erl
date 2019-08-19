@@ -26,6 +26,12 @@
     code_change/3
 ]).
 
+-ifdef(TEST).
+-export([
+    get_distance/2
+]).
+-endif.
+
 -define(SERVER, ?MODULE).
 
 -record(state, {}).
@@ -130,5 +136,42 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+
+%%  @private
+%%  Get distance (in integer) between two 20 bytes length hashes.
+%%
+get_distance(Hash, PeerHash) when
+    byte_size(Hash) =/= byte_size(PeerHash)
+    ->
+    {error, different_hash_length};
+
+get_distance(Hash, PeerHash) when
+    Hash =:= PeerHash
+    ->
+    {ok, 0};
+
+get_distance(Hash, PeerHash) ->
+    get_distance(Hash, PeerHash, 0).
+
+get_distance(<<Hash:1/bytes, HashRest/binary>>, <<PeerHash:1/bytes, PeerHashRest/binary>>, Result) when
+    Hash =:= PeerHash ->
+    get_distance(HashRest, PeerHashRest, Result + 1);
+
+get_distance(<<Hash:1/bytes, _HashRest/binary>>, <<PeerHash:1/bytes, _PeerHashRest/binary>>, Result) when
+    Hash =/= PeerHash
+    ->
+    <<HashInt:8>> = Hash,
+    <<PeerHashInt:8>> = PeerHash,
+    DiffBitPosition = lists:foldl(fun
+        (Shift, 0) ->
+            case ((HashInt bxor PeerHashInt) bsl Shift) band 100000000 of
+                0 -> 0;
+                _ -> Shift
+            end;
+        (_Shift, Res) ->
+            Res
+    end, 0, lists:seq(0, 8)),
+    {ok, Result * 8 + DiffBitPosition}.
 
 

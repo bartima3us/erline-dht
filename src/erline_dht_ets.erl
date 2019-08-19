@@ -19,11 +19,11 @@
 
 new() ->
     ets:new(?TABLE, [set, named_table]),
-    KBuckets = lists:map(fun (KNum) ->
+    KBuckets = lists:map(fun (Distance) ->
         #k_bucket{
-            k = KNum
+            distance = Distance
         }
-    end, lists:seq(1, ?K)),
+    end, lists:seq(1, 160)),
     true = ets:insert(?TABLE, KBuckets),
     ok.
 

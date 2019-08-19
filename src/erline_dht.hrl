@@ -18,7 +18,7 @@
 }).
 
 -record(k_bucket, {
-    k           :: integer(),
+    distance    :: pos_integer(),
     bucket = [] :: [#node{}]
 }).
 

@@ -7,7 +7,8 @@ ErLine DHT
 
 ## <a name="introduction">Introduction</a> ##
 
-Kademlia based Mainline DHT implementation in Erlang. Derivative project from https://github.com/bartima3us/erl-bittorrent
+Kademlia based Mainline DHT implementation in Erlang.<br/>
+Derivative project from https://github.com/bartima3us/erl-bittorrent
 
 ## <a name="status">Status</a> ##
 
