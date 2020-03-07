@@ -2,45 +2,29 @@
 %%% @author bartimaeus
 %%% @copyright (C) 2019, sarunas.bartusevicius@gmail.com
 %%% @doc
-%%% UDP acceptor server.
+%%% Mainline DHT incoming requests handler.
 %%% @end
-%%% Created : 16. Aug 2019 17.02
+%%% Created : 03. Mar 2020 00.53
 %%%-------------------------------------------------------------------
--module(erline_dht_server).
--author("bartimaeus").
+-module(erline_dht_request_handler).
+-author("sarunas").
 
 -behaviour(gen_server).
 
 %% API
--export([
-    start_link/0,
-    add_node/2
-]).
+-export([start_link/0]).
 
 %% gen_server callbacks
--export([
-    init/1,
+-export([init/1,
     handle_call/3,
     handle_cast/2,
     handle_info/2,
     terminate/2,
-    code_change/3
-]).
-
--ifdef(TEST).
--export([
-    get_distance/2
-]).
--endif.
+    code_change/3]).
 
 -define(SERVER, ?MODULE).
--define(MY_NODE_ID, <<169,246,141,183,17,96,15,191,158,252,221,69,218,231,8,97,231,8,214,41>>).
--define(K, 8).
 
--record(state, {
-    socket
-}).
-
+-record(state, {}).
 
 %%%===================================================================
 %%% API
@@ -52,16 +36,10 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
+-spec(start_link() ->
+    {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
-
-
-%%
-%%
-%%
-add_node(Ip, Port) ->
-    gen_server:call(?SERVER, {add_node, Ip, Port}).
-
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -78,10 +56,12 @@ add_node(Ip, Port) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([]) ->
-    {ok, Socket} = gen_udp:open(0, [binary, {active, true}]),
-    {ok, #state{socket = Socket}}.
+-spec(init(Args :: term()) ->
+    {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
+    {stop, Reason :: term()} | ignore).
 
+init([]) ->
+    {ok, #state{}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -90,21 +70,8 @@ init([]) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-handle_call({add_node, Ip, Port}, _From, State = #state{socket = Socket}) ->
-    Response = case erline_dht_message:ping(Ip, Port, Socket, ?MY_NODE_ID, <<0,0>>, 2) of
-        {ok, Hash} ->
-            {ok, Distance} = get_distance(?MY_NODE_ID, Hash),
-            ok = erline_dht_bucket_sup:start_k_bucket(?K, Distance, ?MY_NODE_ID),
-            {ok, Hash} = erline_dht_bucket:add_node(Distance, Ip, Port, Hash, <<0,1>>),
-            {ok, {Distance, Hash}};
-        {error, Reason} ->
-            {error, Reason}
-    end,
-    {reply, Response, State};
-
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
-
 
 %%--------------------------------------------------------------------
 %% @private
@@ -115,7 +82,6 @@ handle_call(_Request, _From, State) ->
 %%--------------------------------------------------------------------
 handle_cast(_Request, State) ->
     {noreply, State}.
-
 
 %%--------------------------------------------------------------------
 %% @private
@@ -129,7 +95,6 @@ handle_cast(_Request, State) ->
 %%--------------------------------------------------------------------
 handle_info(_Info, State) ->
     {noreply, State}.
-
 
 %%--------------------------------------------------------------------
 %% @private
@@ -145,7 +110,6 @@ handle_info(_Info, State) ->
 terminate(_Reason, _State) ->
     ok.
 
-
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
@@ -157,46 +121,6 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
-
-%%  @private
-%%  Get distance (in integer) between two 20 bytes length hashes.
-%%
-get_distance(Hash, NodeHash) when
-    byte_size(Hash) =/= byte_size(NodeHash)
-    ->
-    {error, different_hash_length};
-
-get_distance(Hash, NodeHash) when
-    Hash =:= NodeHash
-    ->
-    {ok, 0};
-
-get_distance(Hash, NodeHash) ->
-    get_distance(Hash, NodeHash, 0).
-
-get_distance(<<Hash:1/bytes, HashRest/binary>>, <<NodeHash:1/bytes, NodeHashRest/binary>>, Result) when
-    Hash =:= NodeHash ->
-    get_distance(HashRest, NodeHashRest, Result + 1);
-
-get_distance(<<Hash:1/bytes, _HashRest/binary>>, <<NodeHash:1/bytes, _NodeHashRest/binary>>, Result) when
-    Hash =/= NodeHash
-    ->
-    <<HashInt:8>> = Hash,
-    <<NodeHashInt:8>> = NodeHash,
-    DiffBitPosition = lists:foldl(fun
-        (Shift, 0) ->
-            case ((HashInt bxor NodeHashInt) bsl Shift) band 100000000 of
-                0 -> 0;
-                _ -> Shift
-            end;
-        (_Shift, Res) ->
-            Res
-    end, 0, lists:seq(0, 8)),
-    {ok, Result * 8 + DiffBitPosition}.
-
-

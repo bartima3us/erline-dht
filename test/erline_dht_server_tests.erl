@@ -10,6 +10,7 @@
 -author("bartimaeus").
 -include_lib("eunit/include/eunit.hrl").
 
+
 get_distance_test_() ->
     {setup,
         fun() ->

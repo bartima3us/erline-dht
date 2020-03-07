@@ -29,7 +29,7 @@ start_link() ->
 %% Child :: {Id,StartFunc,Restart,Shutdown,Type,Modules}
 init([]) ->
     ok = erline_dht_ets:new(),
-    Spec = #{
+    ServerSpec = #{
         id          => erline_dht_server,
         start       => {erline_dht_server, start_link, []},
         restart     => temporary,
@@ -37,7 +37,15 @@ init([]) ->
         type        => worker,
         modules     => [erline_dht_server]
     },
-    {ok, { {one_for_all, 5, 10}, [Spec]} }.
+    BucketSupSpec = #{
+        id          => erline_dht_bucket_sup,
+        start       => {erline_dht_bucket_sup, start_link, []},
+        restart     => permanent,
+        shutdown    => infinity,
+        type        => supervisor,
+        modules     => [erline_dht_bucket_sup]
+    },
+    {ok, { {one_for_one, 5, 10}, [ServerSpec, BucketSupSpec]} }.
 
 %%====================================================================
 %% Internal functions

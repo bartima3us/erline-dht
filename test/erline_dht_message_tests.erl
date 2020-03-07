@@ -10,44 +10,6 @@
 -author("bartimaeus").
 -include_lib("eunit/include/eunit.hrl").
 
--record(state, {
-    last_transaction_id
-}).
-
-update_transaction_id_test_() ->
-    {setup,
-        fun() ->
-            ok
-        end,
-        fun(_) ->
-            ok
-        end,
-        [{"First transaction ID.",
-            fun() ->
-                ?assertEqual(
-                    #state{last_transaction_id = <<0,0>>},
-                    erline_dht_message:update_transaction_id(#state{})
-                )
-            end
-        },
-        {"Last transaction ID.",
-            fun() ->
-                ?assertEqual(
-                    #state{last_transaction_id = <<0,0>>},
-                    erline_dht_message:update_transaction_id(#state{last_transaction_id = <<255,255>>})
-                )
-            end
-        },
-        {"Usual transaction ID.",
-            fun() ->
-                ?assertEqual(
-                    #state{last_transaction_id = <<12,141>>},
-                    erline_dht_message:update_transaction_id(#state{last_transaction_id = <<12,140>>})
-                )
-            end
-        }]
-    }.
-
 
 do_ping_test_() ->
     {setup,

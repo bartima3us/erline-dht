@@ -9,197 +9,56 @@
 -module(erline_dht_message).
 -author("bartimaeus").
 
--behaviour(gen_server).
-
-%% API
 -export([
-    start_link/0
+    ping/6,
+    ping_request/2,
+    ping_response/2,
+    find_node_request/3,
+    find_node_response/3,
+    get_peers_request/3,
+    get_peers_response/4,
+    announce_peer_request/6,
+    announce_peer_response/2,
+    error_response/3
 ]).
 
-%% gen_server callbacks
--export([
-    init/1,
-    handle_call/3,
-    handle_cast/2,
-    handle_info/2,
-    terminate/2,
-    code_change/3
-]).
+-define(RECEIVE_TIMEOUT, 2000).
 
--ifdef(TEST).
--export([
-    update_transaction_id/1,
-    do_ping/2,
-    do_ping_response/2,
-    do_find_node/3,
-    do_find_node_response/3,
-    do_get_peers/3,
-    do_get_peers_response/4,
-    do_announce_peer/6,
-    do_announce_peer_response/2,
-    do_error_response/3
-]).
--endif.
-
--define(SERVER, ?MODULE).
-
--record(state, {
-    last_transaction_id
-}).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
 
-%%--------------------------------------------------------------------
-%% @doc
-%% Starts the server
+
 %%
-%% @end
-%%--------------------------------------------------------------------
--spec start_link() ->
-    {ok, Pid :: pid()} | ignore | {error, Reason :: term()}.
-
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
-
-
-ping(NodeId) ->
-    ok.
-
-
-ping_response(NodeId) ->
-    ok.
-
-
-find_node() ->
-    ok.
-
-
-find_node_response() ->
-    ok.
-
-
-get_peers() ->
-    ok.
-
-
-get_peers_response() ->
-    ok.
-
-
-announce_peer() ->
-    ok.
-
-
-announce_peer_response() ->
-    ok.
-
-
-%%%===================================================================
-%%% gen_server callbacks
-%%%===================================================================
-
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Initializes the server
 %%
-%% @spec init(Args) -> {ok, State} |
-%%                     {ok, State, Timeout} |
-%%                     ignore |
-%%                     {stop, Reason}
-%% @end
-%%--------------------------------------------------------------------
--spec(init(Args :: term()) ->
-    {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
-    {stop, Reason :: term()} | ignore).
-
-init([]) ->
-    {ok, #state{}}.
-
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Handling call messages
 %%
-%% @end
-%%--------------------------------------------------------------------
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+ping(Ip, Port, Socket, NodeId, TransactionId, Tries) ->
+    PingPayload = ping_request(TransactionId, NodeId),
+    ok = gen_udp:send(Socket, Ip, Port, PingPayload),
+    receive
+        {udp, Socket, Ip, Port, PingResp} ->
+            ok = erline_dht_helper:socket_passive(Socket),
+            {ok, {dict, PingRespDict}} = erline_dht_bencoding:decode(PingResp),
+            case dict:find(<<"t">>, PingRespDict) of
+                {ok, TransactionId} ->
+                    {ok, {dict, R}} = dict:find(<<"r">>, PingRespDict),
+                    {ok, _NodeHash} = dict:find(<<"id">>, R);
+                _Other -> % @todo implement
+                     {error, bad_response}
+            end
+    after ?RECEIVE_TIMEOUT ->
+        case Tries > 1 of
+            true  -> ping(Ip, Port, Socket, NodeId, TransactionId, Tries - 1);
+            false -> {error, not_alive}
+        end
+    end.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Handling cast messages
+
+%%  @doc
+%%  Get `ping` request. http://www.bittorrent.org/beps/bep_0005.html#ping
 %%
-%% @end
-%%--------------------------------------------------------------------
-handle_cast(_Request, State) ->
-    {noreply, State}.
-
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Handling all non call/cast messages
-%%
-%% @spec handle_info(Info, State) -> {noreply, State} |
-%%                                   {noreply, State, Timeout} |
-%%                                   {stop, Reason, State}
-%% @end
-%%--------------------------------------------------------------------
-handle_info(_Info, State) ->
-    {noreply, State}.
-
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% This function is called by a gen_server when it is about to
-%% terminate. It should be the opposite of Module:init/1 and do any
-%% necessary cleaning up. When it returns, the gen_server terminates
-%% with Reason. The return value is ignored.
-%%
-%% @spec terminate(Reason, State) -> void()
-%% @end
-%%--------------------------------------------------------------------
-terminate(_Reason, _State) ->
-    ok.
-
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Convert process state when code is changed
-%%
-%% @spec code_change(OldVsn, State, Extra) -> {ok, NewState}
-%% @end
-%%--------------------------------------------------------------------
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================
-
-%%  @private
-%%  Increase current transaction ID by 1.
-%%
-update_transaction_id(State = #state{last_transaction_id = undefined}) ->
-    State#state{last_transaction_id = <<0,0>>};
-
-update_transaction_id(State = #state{last_transaction_id = <<255,255>>}) ->
-    State#state{last_transaction_id = <<0,0>>};
-
-update_transaction_id(State = #state{last_transaction_id = LastTransactionIdBin}) ->
-    <<LastTransactionIdInt:16>> = LastTransactionIdBin,
-    NewTransactionIdInt = LastTransactionIdInt + 1,
-    State#state{last_transaction_id = <<NewTransactionIdInt:16>>}.
-
-
-%%  @private
-%%  Do `ping` request. http://www.bittorrent.org/beps/bep_0005.html#ping
-%%
-do_ping(TransactionId, NodeId) ->
+ping_request(TransactionId, NodeId) ->
     Args = [
         {<<"id">>, NodeId}
     ],
@@ -207,10 +66,10 @@ do_ping(TransactionId, NodeId) ->
     erline_dht_bencoding:encode(Request).
 
 
-%%  @private
+%%  @doc
 %%  Do response to `ping` request. http://www.bittorrent.org/beps/bep_0005.html#ping
 %%
-do_ping_response(TransactionId, NodeId) ->
+ping_response(TransactionId, NodeId) ->
     Args = [
         {<<"id">>, NodeId}
     ],
@@ -218,10 +77,10 @@ do_ping_response(TransactionId, NodeId) ->
     erline_dht_bencoding:encode(Response).
 
 
-%%  @private
-%%  Do `find node` request. http://www.bittorrent.org/beps/bep_0005.html#find-node
+%%  @doc
+%%  Get `find node` request. http://www.bittorrent.org/beps/bep_0005.html#find-node
 %%
-do_find_node(TransactionId, NodeId, Target) ->
+find_node_request(TransactionId, NodeId, Target) ->
     Args = [
         {<<"id">>, NodeId},
         {<<"target">>, Target}
@@ -230,10 +89,10 @@ do_find_node(TransactionId, NodeId, Target) ->
     erline_dht_bencoding:encode(Request).
 
 
-%%  @private
+%%  @doc
 %%  Do response to `find node` request. http://www.bittorrent.org/beps/bep_0005.html#find-node
 %%
-do_find_node_response(TransactionId, NodeId, Nodes) ->
+find_node_response(TransactionId, NodeId, Nodes) ->
     Args = [
         {<<"id">>, NodeId},
         {<<"nodes">>, Nodes}
@@ -242,10 +101,10 @@ do_find_node_response(TransactionId, NodeId, Nodes) ->
     erline_dht_bencoding:encode(Response).
 
 
-%%  @private
-%%  Do `get peers` request. http://www.bittorrent.org/beps/bep_0005.html#get-peers
+%%  @doc
+%%  Get `get peers` request. http://www.bittorrent.org/beps/bep_0005.html#get-peers
 %%
-do_get_peers(TransactionId, NodeId, InfoHash) ->
+get_peers_request(TransactionId, NodeId, InfoHash) ->
     Args = [
         {<<"id">>, NodeId},
         {<<"info_hash">>, InfoHash}
@@ -254,10 +113,10 @@ do_get_peers(TransactionId, NodeId, InfoHash) ->
     erline_dht_bencoding:encode(Request).
 
 
-%%  @private
+%%  @doc
 %%  Do response to `get peers` request. http://www.bittorrent.org/beps/bep_0005.html#get-peers
 %%
-do_get_peers_response(TransactionId, NodeId, Token, Values) when is_list(Values) ->
+get_peers_response(TransactionId, NodeId, Token, Values) when is_list(Values) ->
     Args = [
         {<<"id">>, NodeId},
         {<<"token">>, Token},
@@ -266,7 +125,7 @@ do_get_peers_response(TransactionId, NodeId, Token, Values) when is_list(Values)
     Response = krpc_request(TransactionId, <<"r">>, Args),
     erline_dht_bencoding:encode(Response);
 
-do_get_peers_response(TransactionId, NodeId, Token, Nodes) ->
+get_peers_response(TransactionId, NodeId, Token, Nodes) ->
     Args = [
         {<<"id">>, NodeId},
         {<<"token">>, Token},
@@ -276,10 +135,10 @@ do_get_peers_response(TransactionId, NodeId, Token, Nodes) ->
     erline_dht_bencoding:encode(Response).
 
 
-%%  @private
-%%  Do `announce peer` request. http://www.bittorrent.org/beps/bep_0005.html#announce-peer
+%%  @doc
+%%  Get `announce peer` request. http://www.bittorrent.org/beps/bep_0005.html#announce-peer
 %%
-do_announce_peer(TransactionId, NodeId, ImpliedPort, InfoHash, Port, Token) when
+announce_peer_request(TransactionId, NodeId, ImpliedPort, InfoHash, Port, Token) when
     ImpliedPort =:= 0;
     ImpliedPort =:= 1
     ->
@@ -294,10 +153,10 @@ do_announce_peer(TransactionId, NodeId, ImpliedPort, InfoHash, Port, Token) when
     erline_dht_bencoding:encode(Request).
 
 
-%%  @private
+%%  @doc
 %%  Do response to `get peers` request. http://www.bittorrent.org/beps/bep_0005.html#announce-peer
 %%
-do_announce_peer_response(TransactionId, NodeId) ->
+announce_peer_response(TransactionId, NodeId) ->
     Args = [
         {<<"id">>, NodeId}
     ],
@@ -305,10 +164,10 @@ do_announce_peer_response(TransactionId, NodeId) ->
     erline_dht_bencoding:encode(Response).
 
 
-%%  @private
+%%  @doc
 %%  Do error response. http://www.bittorrent.org/beps/bep_0005.html#errors
 %%
-do_error_response(TransactionId, ErrorCode, ErrorDescription) when
+error_response(TransactionId, ErrorCode, ErrorDescription) when
     ErrorCode =:= 201;
     ErrorCode =:= 202;
     ErrorCode =:= 203;
@@ -317,6 +176,10 @@ do_error_response(TransactionId, ErrorCode, ErrorDescription) when
     Response = krpc_request(TransactionId, <<"e">>, [ErrorCode, ErrorDescription]),
     erline_dht_bencoding:encode(Response).
 
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
 
 %%  @private
 %%  Make KRPC request. http://bittorrent.org/beps/bep_0005.html#krpc-protocol
@@ -331,6 +194,7 @@ krpc_request(TransactionId, Type = <<"q">>, Query, Args) ->
     Req1 = dict:store(<<"y">>, Type, Req0),
     Req2 = dict:store(Type, Query, Req1),
     Req3 = dict:store(<<"a">>, {dict, A}, Req2),
+%%    Req4 = dict:store(<<"v">>, <<76,84,1,0>>, Req3), % Version. Optional. @todo fix tests with it
     {dict, Req3}.
 
 krpc_request(TransactionId, Type = <<"r">>, Response) ->

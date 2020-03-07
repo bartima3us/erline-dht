@@ -2,7 +2,7 @@
  [{description, "Kademlia based Mainline DHT implementation."},
   {vsn, "0.1.0"},
   {registered, []},
-  {mod, { erline_dht_app, []}},
+  {mod, { erline_dht, []}},
   {applications,
    [kernel,
     stdlib,
