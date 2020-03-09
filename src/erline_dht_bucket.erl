@@ -18,7 +18,8 @@
     add_node/3,
     add_node/5,
     get_all_nodes/1,
-    ping/3
+    ping/3,
+    find_node/3
 ]).
 
 %% gen_server callbacks
@@ -56,7 +57,7 @@
 
 -record(state, {
     k                       :: non_neg_integer(),
-    node_id                 :: binary(),
+    my_node_id              :: binary(),
     socket                  :: port(),
     nodes           = []    :: [#node{}],
     last_changed            :: calendar:datetime()
@@ -102,13 +103,14 @@ ping(Distance, Ip, Port) ->
     gen_server:call(?REF(Distance), {ping, Ip, Port}, ?CALL_TIMEOUT).
 
 
-
 %%ping_response(NodeId) ->
 %%    ok.
-%%
-%%
-%%find_node() ->
-%%    ok.
+
+
+find_node(Distance, Ip, Port) ->
+    gen_server:call(?REF(Distance), {find_node, Ip, Port}, ?CALL_TIMEOUT).
+
+
 %%
 %%
 %%find_node_response() ->
@@ -150,9 +152,9 @@ get_nodes(Distance, Ip, Port, InfoHash) ->
     {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term()} | ignore).
 
-init([K, NodeId]) ->
+init([K, MyNodeId]) ->
     {ok, Socket} = gen_udp:open(0, [binary, {active, true}]),
-    {ok, #state{k = K, node_id = NodeId, socket = Socket}}.
+    {ok, #state{k = K, my_node_id = MyNodeId, socket = Socket}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -210,21 +212,18 @@ handle_call(get_all_nodes, _From, State = #state{nodes = Nodes}) ->
 
 %
 %
-handle_call({get_nodes, Ip, Port, InfoHash}, _From, State = #state{socket = Socket}) ->
-%%    Payload = erline_dht_message:do_get_nodes(TransactionId, ?MY_NODE_ID, InfoHash),
-%%    ok = gen_udp:send(Socket, Ip, Port, Payload),
-%%    {ok, {Ip, Port, Data}} = gen_udp:recv(Socket, 0),
-%%    ok = gen_udp:close(Socket),
-%%    io:format("xxxxxxxxxxx Data=~p~n", [Data]),
-%%    io:format("xxxxxxxxxxx Data decoded=~p~n", [erline_dht_bencoding:decode(Data)]),
-%%    NewState = update_transaction_id(State),
-    {reply, {ok, <<"data">>}, State};
+handle_call({ping, Ip, Port}, _From, State = #state{}) ->
+    {Response, NewState} = ping_and_update(Ip, Port, State),
+    {reply, Response, NewState};
 
 %
 %
-handle_call({ping, Ip, Port}, _From, State = #state{}) ->
-    {Response, NewState} = ping_and_update(Ip, Port, State),
-    {reply, Response, NewState}.
+handle_call({find_node, Ip, Port}, _From, State = #state{my_node_id = MyNodeId, socket = Socket}) ->
+    Node = get_node(Ip, Port, State),
+    #node{transaction_id  = TransactionId} = Node,
+    Response = erline_dht_message:find_node(Ip, Port, Socket, MyNodeId, TransactionId, MyNodeId),
+    NewState0 = update_transaction_id(Ip, Port, State),
+    {reply, Response, NewState0}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -298,11 +297,11 @@ code_change(_OldVsn, State, _Extra) ->
 ping_and_update(Ip, Port, State) ->
     ping_and_update(Ip, Port, State, 2).
 
-ping_and_update(Ip, Port, State = #state{node_id = NodeId, socket = Socket}, Tries) ->
+ping_and_update(Ip, Port, State = #state{my_node_id = MyNodeId, socket = Socket}, Tries) ->
     Node = get_node(Ip, Port, State),
     #node{transaction_id = TransactionId} = Node,
     NewState0 = update_transaction_id(Ip, Port, State),
-    case erline_dht_message:ping(Ip, Port, Socket, NodeId, TransactionId, Tries) of
+    case erline_dht_message:ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries) of
         {ok, NodeHash} ->
             Params = [
                 {hash,         NodeHash},

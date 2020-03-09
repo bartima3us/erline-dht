@@ -11,6 +11,7 @@
 
 -export([
     ping/6,
+    find_node/6,
     ping_request/2,
     ping_response/2,
     find_node_request/3,
@@ -34,25 +35,50 @@
 %%
 %%
 %%
-ping(Ip, Port, Socket, NodeId, TransactionId, Tries) ->
-    PingPayload = ping_request(TransactionId, NodeId),
-    ok = gen_udp:send(Socket, Ip, Port, PingPayload),
+ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries) ->
+    Payload = ping_request(TransactionId, MyNodeId),
+    ok = gen_udp:send(Socket, Ip, Port, Payload),
     receive
-        {udp, Socket, Ip, Port, PingResp} ->
+        {udp, Socket, Ip, Port, Response} ->
             ok = erline_dht_helper:socket_passive(Socket),
-            {ok, {dict, PingRespDict}} = erline_dht_bencoding:decode(PingResp),
-            case dict:find(<<"t">>, PingRespDict) of
+            {ok, {dict, ResponseDict}} = erline_dht_bencoding:decode(Response),
+            case dict:find(<<"t">>, ResponseDict) of
                 {ok, TransactionId} ->
-                    {ok, {dict, R}} = dict:find(<<"r">>, PingRespDict),
+                    {ok, {dict, R}} = dict:find(<<"r">>, ResponseDict),
                     {ok, _NodeHash} = dict:find(<<"id">>, R);
                 _Other -> % @todo implement
                      {error, bad_response}
             end
     after ?RECEIVE_TIMEOUT ->
         case Tries > 1 of
-            true  -> ping(Ip, Port, Socket, NodeId, TransactionId, Tries - 1);
+            true  -> ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries - 1);
             false -> {error, not_alive}
         end
+    end.
+
+
+%%
+%%
+%%
+find_node(Ip, Port, Socket, MyNodeId, TransactionId, TargetNodeId) ->
+    Payload = find_node_request(TransactionId, MyNodeId, TargetNodeId),
+    ok = gen_udp:send(Socket, Ip, Port, Payload),
+    receive
+        {udp, Socket, Ip, Port, Response} ->
+            ok = erline_dht_helper:socket_passive(Socket),
+            {ok, {dict, ResponseDict}} = erline_dht_bencoding:decode(Response),
+            io:format("xxxxxxx ResponseDict=~p~n", [ResponseDict]),
+            case dict:find(<<"t">>, ResponseDict) of
+                {ok, TransactionId} ->
+                    {ok, {dict, R}} = dict:find(<<"r">>, ResponseDict),
+                    {ok, CompactNodeInfo} = dict:find(<<"nodes">>, R),
+                    Result = erline_dht_helper:parse_compact_node_info(CompactNodeInfo),
+                    {ok, Result};
+                _Other -> % @todo implement
+                     {error, bad_response}
+            end
+    after ?RECEIVE_TIMEOUT ->
+        {error, no_result}
     end.
 
 
