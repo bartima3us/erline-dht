@@ -22,6 +22,7 @@
     error_response/3
 ]).
 
+% @todo make option
 -define(RECEIVE_TIMEOUT, 2000).
 
 

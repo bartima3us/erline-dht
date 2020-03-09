@@ -17,7 +17,8 @@
     get_nodes/4,
     add_node/3,
     add_node/5,
-    get_all_nodes/1
+    get_all_nodes/1,
+    ping/3
 ]).
 
 %% gen_server callbacks
@@ -82,6 +83,9 @@ start_link(K, Distance, NodeId) ->
     gen_server:start_link(?REF(Distance), ?MODULE, [K, NodeId], []).
 
 
+% @todo force_add_node
+% @todo call timeout as option
+
 add_node(Distance, Ip, Port) ->
     gen_server:call(?REF(Distance), {add_node, Ip, Port}, ?CALL_TIMEOUT).
 
@@ -95,7 +99,8 @@ get_all_nodes(Distance) ->
 
 
 ping(Distance, Ip, Port) ->
-    gen_server:call(?REF(Distance), {add_node, Ip, Port}, ?CALL_TIMEOUT).
+    gen_server:call(?REF(Distance), {ping, Ip, Port}, ?CALL_TIMEOUT).
+
 
 
 %%ping_response(NodeId) ->
