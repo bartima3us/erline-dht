@@ -178,12 +178,12 @@ init([Distance, K, MyNodeId]) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_call({add_node, Ip, Port}, _From, State = #state{}) ->
-    {Status, Hash, NewState} = do_add_node_without_hash(Ip, Port, State),
-    {reply, {Status, Hash}, NewState};
+    {Status, Response, NewState} = do_add_node_without_hash(Ip, Port, sync, State),
+    {reply, {Status, Response}, NewState};
 
 handle_call({add_node, Ip, Port, Hash, TransactionId}, _From, State = #state{}) ->
-    {Status, Hash, NewState} = do_add_node_with_hash(Ip, Port, Hash, TransactionId, State),
-    {reply, {Status, Hash}, NewState};
+    {Status, Response, NewState} = do_add_node_with_hash(Ip, Port, Hash, TransactionId, State),
+    {reply, {Status, Response}, NewState};
 
 %
 %
@@ -201,7 +201,7 @@ handle_call(get_all_nodes, _From, State = #state{nodes = Nodes}) ->
 %
 %
 handle_call({ping, Ip, Port}, _From, State = #state{}) ->
-    {Response, NewState} = do_ping(Ip, Port, State),
+    {Response, NewState} = do_ping_sync(Ip, Port, State),
     {reply, Response, NewState};
 
 %
@@ -237,13 +237,18 @@ handle_cast(_Request, State) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_info({add_node, Ip, Port}, State = #state{}) ->
-    {_Status, _Response, NewState} = do_add_node_without_hash(Ip, Port, State),
-    {noreply, NewState};
+    NewState1 = case do_add_node_without_hash(Ip, Port, async, State) of
+        {ok, NewState0}             -> NewState0;
+        {error, _Reason, NewState0} -> NewState0
+    end,
+    {noreply, NewState1};
 
 handle_info({add_node, Ip, Port, Hash, TransactionId}, State = #state{}) ->
     {_Status, _Response, NewState} = do_add_node_with_hash(Ip, Port, Hash, TransactionId, State),
     {noreply, NewState};
 
+%
+%
 handle_info({find_node, Ip, Port, Target}, State = #state{my_node_id = MyNodeId}) ->
     % @todo can race condition crash this?
     #node{transaction_id = TransactionId} = get_node(Ip, Port, State),
@@ -258,8 +263,10 @@ handle_info({find_node, Ip, Port, Target}, State = #state{my_node_id = MyNodeId}
     end, Response),
     {noreply, NewState};
 
+%
+%
 handle_info({ping, Ip, Port}, State) ->
-    case do_ping(Ip, Port, State) of
+    case do_ping_sync(Ip, Port, State) of % @todo do_ping_async?
         {{ok, _Hash}, NewState0} ->
             Node = get_node(Ip, Port, NewState0),
             ok = cancel_timer(Node),
@@ -269,10 +276,50 @@ handle_info({ping, Ip, Port}, State) ->
             ],
             NewState1 = update_node(Ip, Port, Params, NewState0),
             {noreply, NewState1};
-        {{error, _Error}, NewState0} ->
+        {{error, Error}, NewState0} ->
+            io:format("xxxxxxx handle_info error=~p~n", [Error]),
             NewState1 = delete_node(Ip, Port, NewState0),
             {noreply, NewState1}
-    end.
+    end;
+
+%
+%
+handle_info({check_node, Ip, Port}, State) ->
+    % Check if async added node to state responded in 1 min
+    NewState = case get_node(Ip, Port, State) of
+        #node{last_changed = undefined} -> delete_node(Ip, Port, State);
+        #node{}                         -> State;
+        false                           -> State
+    end,
+    {noreply, NewState};
+
+%
+%
+handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket}) ->
+    NewState = case get_node(Ip, Port, State) of
+        Node = #node{active_transactions = ActiveTx} ->
+            case erline_dht_message:parse_krpc_response(Response, ActiveTx) of
+                {ok, ping, NodeHash, NewActiveTx} ->
+                    Params = [
+                        {hash,                NodeHash},
+                        {last_changed,        calendar:local_time()},
+                        {ping_timer,          schedule_next_ping(Node)},
+                        {active_transactions, NewActiveTx}
+                    ],
+                    io:format("xxxxxxxx async udp handled~n"),
+                    update_node(Ip, Port, Params, State);
+                {ok, find_node, _Nodes, _NewActiveTx} ->
+                    % @todo implement
+                    State;
+                {error, _Reason} ->
+                    State
+            end;
+        false ->
+            State
+    end,
+    {noreply, NewState}.
+
+
 
 %%--------------------------------------------------------------------
 %% @private
@@ -313,24 +360,26 @@ find_node_async(Distance, Ip, Port, Hash) ->
 
 
 %%
+%%  Calling from handle_call and handle_info.
 %%
-%%
-do_add_node_without_hash(Ip, Port, State = #state{distance = Distance, k = K, nodes = Nodes}) ->
+do_add_node_without_hash(Ip, Port, Mode, State = #state{distance = Distance, k = K, nodes = Nodes}) ->
     case get_node(Ip, Port, State) of
         false ->
             case erlang:length(Nodes) < K of
                 true  ->
-                    NewNode = #node{
-                        ip_port = {Ip, Port}
-                    },
-                    % @todo make active socket on async
-                    case do_ping(Ip, Port, State#state{nodes = [NewNode | Nodes]}) of
-                        {Response = {ok, Hash}, NewState} ->
-                            ok = find_node_async(Distance, Ip, Port, Hash),
-                            {ok, Response, NewState};
-                        {Response = {error, _Reason}, NewState0} ->
-                            NewState1 = delete_node(Ip, Port, NewState0),
-                            {ok, Response, NewState1}
+                    NewState0 = State#state{nodes = [#node{ip_port = {Ip, Port}} | Nodes]},
+                    case Mode of
+                        sync ->
+                            case do_ping_sync(Ip, Port, NewState0) of
+                                {Response = {ok, Hash}, NewState1} ->
+                                    ok = find_node_async(Distance, Ip, Port, Hash),
+                                    {ok, Response, NewState1};
+                                {Response = {error, _Reason}, NewState1} ->
+                                    NewState2 = delete_node(Ip, Port, NewState1),
+                                    {ok, Response, NewState2}
+                            end;
+                        async ->
+                            {ok, _NewState1} = do_ping_async(Ip, Port, NewState0)
                     end;
                 false ->
                     % @todo implement check last changed
@@ -343,7 +392,7 @@ do_add_node_without_hash(Ip, Port, State = #state{distance = Distance, k = K, no
 
 
 %%
-%%
+%%  Calling from handle_call and handle_info.
 %%
 do_add_node_with_hash(Ip, Port, Hash, TransactionId, State = #state{distance = Distance, k = K, nodes = Nodes}) ->
     case get_node(Ip, Port, State) of
@@ -374,10 +423,10 @@ do_add_node_with_hash(Ip, Port, Hash, TransactionId, State = #state{distance = D
 %%
 do_find_node(Ip, Port, Target, TransactionId, State = #state{socket = Socket, my_node_id = MyNodeId}) ->
     case erline_dht_message:send_and_handle_find_node(Ip, Port, Socket, MyNodeId, TransactionId, Target) of
-        {ok, Response, _NewActiveTransactions} ->
-            io:format("xxxxxxx do_find_node response=~p~n", [Response]),
+        {ok, Nodes} ->
+            io:format("xxxxxxx do_find_node response=~p~n", [Nodes]),
             NewState = update_transaction_id(Ip, Port, State),
-            {ok, Response, NewState};
+            {ok, Nodes, NewState};
         {error, _Reason} ->
             io:format("xxxxxxx do_find_node _Reason=~p~n", [_Reason]),
             {ok, [], State}
@@ -387,15 +436,15 @@ do_find_node(Ip, Port, Target, TransactionId, State = #state{socket = Socket, my
 %%
 %%
 %%
-do_ping(Ip, Port, State) ->
-    do_ping(Ip, Port, State, 2).
+do_ping_sync(Ip, Port, State) ->
+    do_ping_sync(Ip, Port, State, 2).
 
-do_ping(Ip, Port, State = #state{my_node_id = MyNodeId, socket = Socket}, Tries) ->
+do_ping_sync(Ip, Port, State = #state{my_node_id = MyNodeId, socket = Socket}, Tries) ->
     Node = get_node(Ip, Port, State),
     #node{transaction_id = TransactionId} = Node,
     NewState0 = update_transaction_id(Ip, Port, State),
     case erline_dht_message:send_and_handle_ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries) of
-        {ok, NodeHash, _NewActiveTransactions} ->
+        {ok, NodeHash} ->
             Params = [
                 {hash,         NodeHash},
                 {last_changed, calendar:local_time()},
@@ -406,6 +455,21 @@ do_ping(Ip, Port, State = #state{my_node_id = MyNodeId, socket = Socket}, Tries)
         {error, Reason} ->
             {{error, Reason}, NewState0}
     end.
+
+
+%%
+%%
+%%
+do_ping_async(Ip, Port, State = #state{my_node_id = MyNodeId, socket = Socket}) ->
+    erlang:send_after(60000, self(), {check_node, Ip, Port}),
+    Node = get_node(Ip, Port, State),
+    #node{transaction_id = TransactionId, active_transactions = CurrActiveTx} = Node,
+    NewState0 = update_transaction_id(Ip, Port, State),
+    ok = erline_dht_helper:socket_active(Socket),
+    ok = erline_dht_message:send_ping(Ip, Port, Socket, MyNodeId, TransactionId),
+    NewActiveTx = [{ping, TransactionId} | CurrActiveTx],
+    NewState1 = update_node(Ip, Port, [{active_transactions, NewActiveTx}], NewState0),
+    {ok, NewState1}.
 
 
 %%  @private
@@ -463,9 +527,10 @@ cancel_timer(#node{ping_timer = PingTimer}) ->
 update_node(Ip, Port, Params, State = #state{nodes = Nodes}) ->
     Node = get_node(Ip, Port, State),
     UpdatedNode = lists:foldl(fun
-        ({hash, Hash}, AccNode)                -> AccNode#node{hash = Hash};
-        ({last_changed, LastChanged}, AccNode) -> AccNode#node{last_changed = LastChanged};
-        ({ping_timer, PingTimerRef}, AccNode)  -> AccNode#node{ping_timer = PingTimerRef}
+        ({hash, Hash}, AccNode)                     -> AccNode#node{hash = Hash};
+        ({last_changed, LastChanged}, AccNode)      -> AccNode#node{last_changed = LastChanged};
+        ({ping_timer, PingTimerRef}, AccNode)       -> AccNode#node{ping_timer = PingTimerRef};
+        ({active_transactions, ActiveTx}, AccNode)  -> AccNode#node{active_transactions = ActiveTx}
     end, Node, Params),
     NewNodes = lists:keyreplace({Ip, Port}, #node.ip_port, Nodes, UpdatedNode),
     State#state{nodes = NewNodes}.

@@ -23,7 +23,7 @@
     announce_peer_request/6,
     announce_peer_response/2,
     error_response/3,
-    parse_krpc_response/3
+    parse_krpc_response/2
 ]).
 
 % @todo make option
@@ -47,15 +47,16 @@ send_ping(Ip, Port, Socket, MyNodeId, TransactionId) ->
 %%
 %%
 send_and_handle_ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries) ->
+    ok = erline_dht_helper:socket_active(Socket),
     ok = send_ping(Ip, Port, Socket, MyNodeId, TransactionId),
     receive
         {udp, Socket, Ip, Port, Response} ->
-            ok = erline_dht_helper:socket_passive(Socket),
-            ParseResponseFun = fun (Response) ->
-                {ok, NodeHash} = dict:find(<<"id">>, Response),
-                NodeHash
-            end,
-            parse_krpc_response(Response, [TransactionId], ParseResponseFun)
+            case parse_krpc_response(Response, [{ping, TransactionId}]) of
+                {ok, ping, NodeHash, _NewActiveTx} ->
+                    {ok, NodeHash};
+                {error, Reason} ->
+                    {error, Reason}
+            end
     after ?RECEIVE_TIMEOUT ->
         case Tries > 1 of
             true  -> send_and_handle_ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries - 1);
@@ -80,11 +81,12 @@ send_and_handle_find_node(Ip, Port, Socket, MyNodeId, TransactionId, TargetNodeI
     receive
         {udp, Socket, Ip, Port, Response} ->
             ok = erline_dht_helper:socket_passive(Socket),
-            ParseResponseFun = fun (Response) ->
-                {ok, CompactNodeInfo} = dict:find(<<"nodes">>, Response),
-                erline_dht_helper:parse_compact_node_info(CompactNodeInfo)
-            end,
-            parse_krpc_response(Response, [TransactionId], ParseResponseFun)
+            case parse_krpc_response(Response, [{find_node, TransactionId}]) of
+                {ok, find_node, Nodes, _NewActiveTx} ->
+                    {ok, Nodes};
+                {error, Reason} ->
+                    {error, Reason}
+            end
     after ?RECEIVE_TIMEOUT ->
         {error, no_result}
     end.
@@ -215,18 +217,28 @@ error_response(TransactionId, ErrorCode, ErrorDescription) when
 %%
 %%
 %%
-parse_krpc_response(Response, ActiveTransactions, ParseResponseFun) ->
+parse_krpc_response(Response, ActiveTx) ->
+    ParseResponseFun = fun
+        (ping, Response) ->
+            {ok, NodeHash} = dict:find(<<"id">>, Response),
+            NodeHash;
+        (find_node, Response) ->
+            {ok, CompactNodeInfo} = dict:find(<<"nodes">>, Response),
+            erline_dht_helper:parse_compact_node_info(CompactNodeInfo)
+    end,
     {ok, {dict, ResponseDict}} = erline_dht_bencoding:decode(Response),
     case dict:find(<<"t">>, ResponseDict) of
         {ok, TransactionId} ->
-            case lists:member(TransactionId, ActiveTransactions) of
-                true ->
+            case lists:keysearch(TransactionId, 2, ActiveTx) of
+                {value, {ReqType, TransactionId}} ->
                     case dict:find(<<"y">>, ResponseDict) of
                         {ok, <<"r">>} ->
                             {ok, {dict, R}} = dict:find(<<"r">>, ResponseDict),
-                            {ok, ParseResponseFun(R), ActiveTransactions};
+                            NewActiveTx = ActiveTx -- [{ReqType, TransactionId}],
+                            {ok, ReqType, ParseResponseFun(ReqType, R), NewActiveTx};
                         {ok, <<"e">>} ->
-                            {ok, {dict, E}} = dict:find(<<"e">>, ResponseDict),
+                            % {ok,{list,[202,<<"Server Error">>]}
+                            {ok, {list, E}} = dict:find(<<"e">>, ResponseDict),
                             {error, {krpc_error, E}}
                     end;
                 false ->
