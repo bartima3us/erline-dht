@@ -246,6 +246,7 @@ handle_info({add_node, Ip, Port, Hash, TransactionId}, State = #state{}) ->
 handle_info({find_node, Ip, Port, Target}, State = #state{my_node_id = MyNodeId}) ->
     % @todo can race condition crash this?
     #node{transaction_id = TransactionId} = get_node(Ip, Port, State),
+    % @todo make active socket on async
     {ok, Response, NewState} = do_find_node(Ip, Port, Target, TransactionId, State),
     % Add founded nodes
     ok = lists:foreach(fun (#{hash := FoundHash, ip := FoundIp, port := FoundPort}) ->
@@ -313,7 +314,7 @@ find_node_async(Distance, Ip, Port, Hash) ->
 %%
 %%
 %%
-do_add_node_without_hash(Ip, Port, State = #state{distance = Distance, k = K, my_node_id = MyNodeId, nodes = Nodes}) ->
+do_add_node_without_hash(Ip, Port, State = #state{distance = Distance, k = K, nodes = Nodes}) ->
     case get_node(Ip, Port, State) of
         false ->
             case erlang:length(Nodes) < K of
@@ -321,6 +322,7 @@ do_add_node_without_hash(Ip, Port, State = #state{distance = Distance, k = K, my
                     NewNode = #node{
                         ip_port = {Ip, Port}
                     },
+                    % @todo make active socket on async
                     case do_ping(Ip, Port, State#state{nodes = [NewNode | Nodes]}) of
                         {Response = {ok, Hash}, NewState} ->
                             ok = find_node_async(Distance, Ip, Port, Hash),
@@ -342,7 +344,7 @@ do_add_node_without_hash(Ip, Port, State = #state{distance = Distance, k = K, my
 %%
 %%
 %%
-do_add_node_with_hash(Ip, Port, Hash, TransactionId, State = #state{distance = Distance, k = K, my_node_id = MyNodeId, nodes = Nodes}) ->
+do_add_node_with_hash(Ip, Port, Hash, TransactionId, State = #state{distance = Distance, k = K, nodes = Nodes}) ->
     case get_node(Ip, Port, State) of
         false ->
             case erlang:length(Nodes) < K of
