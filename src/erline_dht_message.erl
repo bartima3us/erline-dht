@@ -52,10 +52,8 @@ send_and_handle_ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries) ->
     receive
         {udp, Socket, Ip, Port, Response} ->
             case parse_krpc_response(Response, [{ping, TransactionId}]) of
-                {ok, ping, NodeHash, _NewActiveTx} ->
-                    {ok, NodeHash};
-                {error, Reason} ->
-                    {error, Reason}
+                {ok, ping, NodeHash, _NewActiveTx} -> {ok, NodeHash};
+                {error, Reason}                    -> {error, Reason}
             end
     after ?RECEIVE_TIMEOUT ->
         case Tries > 1 of
