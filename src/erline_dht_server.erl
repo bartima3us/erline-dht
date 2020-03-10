@@ -86,8 +86,8 @@ init([]) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_call({add_node, Ip, Port}, _From, State = #state{socket = Socket}) ->
-    Response = case erline_dht_message:ping(Ip, Port, Socket, ?MY_NODE_ID, <<0,0>>, 2) of
-        {ok, Hash} ->
+    Response = case erline_dht_message:send_and_handle_ping(Ip, Port, Socket, ?MY_NODE_ID, <<0,0>>, 2) of
+        {ok, Hash, _NewActiveTransactions} ->
             {ok, Distance} = erline_dht_helper:get_distance(?MY_NODE_ID, Hash),
             {ok, Hash} = erline_dht_bucket:add_node(Distance, Ip, Port, Hash, <<0,1>>),
             {ok, {Distance, Hash}};

@@ -10,8 +10,10 @@
 -author("bartimaeus").
 
 -export([
-    ping/6,
-    find_node/6,
+    send_ping/5,
+    send_and_handle_ping/6,
+    send_find_node/6,
+    send_and_handle_find_node/6,
     ping_request/2,
     ping_response/2,
     find_node_request/3,
@@ -20,7 +22,8 @@
     get_peers_response/4,
     announce_peer_request/6,
     announce_peer_response/2,
-    error_response/3
+    error_response/3,
+    parse_krpc_response/3
 ]).
 
 % @todo make option
@@ -35,23 +38,27 @@
 %%
 %%
 %%
-ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries) ->
+send_ping(Ip, Port, Socket, MyNodeId, TransactionId) ->
     Payload = ping_request(TransactionId, MyNodeId),
-    ok = gen_udp:send(Socket, Ip, Port, Payload),
+    ok = gen_udp:send(Socket, Ip, Port, Payload).
+
+
+%%
+%%
+%%
+send_and_handle_ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries) ->
+    ok = send_ping(Ip, Port, Socket, MyNodeId, TransactionId),
     receive
         {udp, Socket, Ip, Port, Response} ->
             ok = erline_dht_helper:socket_passive(Socket),
-            {ok, {dict, ResponseDict}} = erline_dht_bencoding:decode(Response),
-            case dict:find(<<"t">>, ResponseDict) of
-                {ok, TransactionId} ->
-                    {ok, {dict, R}} = dict:find(<<"r">>, ResponseDict),
-                    {ok, _NodeHash} = dict:find(<<"id">>, R);
-                _Other -> % @todo implement
-                     {error, bad_response}
-            end
+            ParseResponseFun = fun (Response) ->
+                {ok, NodeHash} = dict:find(<<"id">>, Response),
+                NodeHash
+            end,
+            parse_krpc_response(Response, [TransactionId], ParseResponseFun)
     after ?RECEIVE_TIMEOUT ->
         case Tries > 1 of
-            true  -> ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries - 1);
+            true  -> send_and_handle_ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries - 1);
             false -> {error, not_alive}
         end
     end.
@@ -60,22 +67,24 @@ ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries) ->
 %%
 %%
 %%
-find_node(Ip, Port, Socket, MyNodeId, TransactionId, TargetNodeId) ->
+send_find_node(Ip, Port, Socket, MyNodeId, TransactionId, TargetNodeId) ->
     Payload = find_node_request(TransactionId, MyNodeId, TargetNodeId),
-    ok = gen_udp:send(Socket, Ip, Port, Payload),
+    ok = gen_udp:send(Socket, Ip, Port, Payload).
+
+
+%%
+%%
+%%
+send_and_handle_find_node(Ip, Port, Socket, MyNodeId, TransactionId, TargetNodeId) ->
+    ok = send_find_node(Ip, Port, Socket, MyNodeId, TransactionId, TargetNodeId),
     receive
         {udp, Socket, Ip, Port, Response} ->
             ok = erline_dht_helper:socket_passive(Socket),
-            {ok, {dict, ResponseDict}} = erline_dht_bencoding:decode(Response),
-            case dict:find(<<"t">>, ResponseDict) of
-                {ok, TransactionId} ->
-                    {ok, {dict, R}} = dict:find(<<"r">>, ResponseDict),
-                    {ok, CompactNodeInfo} = dict:find(<<"nodes">>, R),
-                    Result = erline_dht_helper:parse_compact_node_info(CompactNodeInfo),
-                    {ok, Result};
-                _Other -> % @todo implement
-                     {error, bad_response}
-            end
+            ParseResponseFun = fun (Response) ->
+                {ok, CompactNodeInfo} = dict:find(<<"nodes">>, Response),
+                erline_dht_helper:parse_compact_node_info(CompactNodeInfo)
+            end,
+            parse_krpc_response(Response, [TransactionId], ParseResponseFun)
     after ?RECEIVE_TIMEOUT ->
         {error, no_result}
     end.
@@ -201,6 +210,31 @@ error_response(TransactionId, ErrorCode, ErrorDescription) when
     ->
     Response = krpc_request(TransactionId, <<"e">>, [ErrorCode, ErrorDescription]),
     erline_dht_bencoding:encode(Response).
+
+
+%%
+%%
+%%
+parse_krpc_response(Response, ActiveTransactions, ParseResponseFun) ->
+    {ok, {dict, ResponseDict}} = erline_dht_bencoding:decode(Response),
+    case dict:find(<<"t">>, ResponseDict) of
+        {ok, TransactionId} ->
+            case lists:member(TransactionId, ActiveTransactions) of
+                true ->
+                    case dict:find(<<"y">>, ResponseDict) of
+                        {ok, <<"r">>} ->
+                            {ok, {dict, R}} = dict:find(<<"r">>, ResponseDict),
+                            {ok, ParseResponseFun(R), ActiveTransactions};
+                        {ok, <<"e">>} ->
+                            {ok, {dict, E}} = dict:find(<<"e">>, ResponseDict),
+                            {error, {krpc_error, E}}
+                    end;
+                false ->
+                    {error, {non_existing_transaction, TransactionId}}
+            end;
+        Other ->
+             {error, {bad_response, Other}}
+    end.
 
 
 %%%===================================================================

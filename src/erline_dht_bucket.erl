@@ -51,6 +51,7 @@
 -record(node, {
     ip_port                         :: {inet:ip_address(), inet:port_number()},
     hash                            :: binary(),
+    token                           :: binary(),
     last_changed                    :: calendar:datetime(),
     transaction_id      = <<0,0>>   :: binary(),
     active_transactions = []        :: [binary()],
@@ -372,8 +373,8 @@ do_add_node_with_hash(Ip, Port, Hash, TransactionId, State = #state{distance = D
 %%
 %%
 do_find_node(Ip, Port, Target, TransactionId, State = #state{socket = Socket, my_node_id = MyNodeId}) ->
-    case erline_dht_message:find_node(Ip, Port, Socket, MyNodeId, TransactionId, Target) of
-        {ok, Response} ->
+    case erline_dht_message:send_and_handle_find_node(Ip, Port, Socket, MyNodeId, TransactionId, Target) of
+        {ok, Response, _NewActiveTransactions} ->
             io:format("xxxxxxx do_find_node response=~p~n", [Response]),
             NewState = update_transaction_id(Ip, Port, State),
             {ok, Response, NewState};
@@ -393,8 +394,8 @@ do_ping(Ip, Port, State = #state{my_node_id = MyNodeId, socket = Socket}, Tries)
     Node = get_node(Ip, Port, State),
     #node{transaction_id = TransactionId} = Node,
     NewState0 = update_transaction_id(Ip, Port, State),
-    case erline_dht_message:ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries) of
-        {ok, NodeHash} ->
+    case erline_dht_message:send_and_handle_ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries) of
+        {ok, NodeHash, _NewActiveTransactions} ->
             Params = [
                 {hash,         NodeHash},
                 {last_changed, calendar:local_time()},
