@@ -8,6 +8,7 @@
 %%%-------------------------------------------------------------------
 -module(erline_dht_server).
 -author("bartimaeus").
+-include("erline_dht.hrl").
 
 -behaviour(gen_server).
 
@@ -27,15 +28,7 @@
     code_change/3
 ]).
 
--ifdef(TEST).
--export([
-    get_distance/2
-]).
--endif.
-
 -define(SERVER, ?MODULE).
--define(MY_NODE_ID, <<169,246,141,183,17,96,15,191,158,252,221,69,218,231,8,97,231,8,214,41>>).
--define(K, 8).
 
 -record(state, {
     socket
@@ -80,6 +73,8 @@ add_node(Ip, Port) ->
 %%--------------------------------------------------------------------
 init([]) ->
     {ok, Socket} = gen_udp:open(0, [binary, {active, true}]),
+    % @todo solve race condition (remove timer)
+    erlang:send_after(1000, self(), init_k_buckets),
     {ok, #state{socket = Socket}}.
 
 
@@ -94,7 +89,6 @@ handle_call({add_node, Ip, Port}, _From, State = #state{socket = Socket}) ->
     Response = case erline_dht_message:ping(Ip, Port, Socket, ?MY_NODE_ID, <<0,0>>, 2) of
         {ok, Hash} ->
             {ok, Distance} = erline_dht_helper:get_distance(?MY_NODE_ID, Hash),
-            ok = erline_dht_bucket_sup:start_k_bucket(?K, Distance, ?MY_NODE_ID),
             {ok, Hash} = erline_dht_bucket:add_node(Distance, Ip, Port, Hash, <<0,1>>),
             {ok, {Distance, Hash}};
         {error, Reason} ->
@@ -127,7 +121,10 @@ handle_cast(_Request, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_info(_Info, State) ->
+handle_info(init_k_buckets, State) ->
+    ok = lists:foreach(fun (Distance) ->
+        ok = erline_dht_bucket_sup:start_k_bucket(?K, Distance, ?MY_NODE_ID)
+    end, lists:seq(1, 160)),
     {noreply, State}.
 
 

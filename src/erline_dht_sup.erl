@@ -28,7 +28,6 @@ start_link() ->
 
 %% Child :: {Id,StartFunc,Restart,Shutdown,Type,Modules}
 init([]) ->
-    ok = erline_dht_ets:new(),
     ServerSpec = #{
         id          => erline_dht_server,
         start       => {erline_dht_server, start_link, []},

@@ -67,7 +67,6 @@ find_node(Ip, Port, Socket, MyNodeId, TransactionId, TargetNodeId) ->
         {udp, Socket, Ip, Port, Response} ->
             ok = erline_dht_helper:socket_passive(Socket),
             {ok, {dict, ResponseDict}} = erline_dht_bencoding:decode(Response),
-            io:format("xxxxxxx ResponseDict=~p~n", [ResponseDict]),
             case dict:find(<<"t">>, ResponseDict) of
                 {ok, TransactionId} ->
                     {ok, {dict, R}} = dict:find(<<"r">>, ResponseDict),
