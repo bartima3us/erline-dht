@@ -271,11 +271,24 @@ handle_info({find_node, Ip, Port, Target}, State = #state{my_node_id = MyNodeId}
 
 %
 %
-handle_info({ping, Ip, Port}, State) ->
+handle_info({ping, Ip, Port}, State = #state{my_node_id = MyNodeId}) ->
     case do_ping_sync(Ip, Port, State) of % @todo do_ping_async?
-        {{ok, _Hash}, NewState} ->
-            Node = get_node(Ip, Port, NewState),
-            ok = cancel_timer(Node),
+        {{ok, NewNodeHash}, NewState} ->
+            case get_node(Ip, Port, NewState) of
+                Node = #node{hash = CurrNodeHash, transaction_id = TransactionId} ->
+                    ok = cancel_timer(Node),
+                    case NewNodeHash =:= CurrNodeHash of
+                        true ->
+                            {noreply, NewState};
+                        false -> % If hash changed, move node to another bucket
+                            {ok, Distance} = erline_dht_helper:get_distance(MyNodeId, NewNodeHash),
+                            io:format("xxxxxxxx hash changed2=~p~n", [Distance]),
+                            ok = add_node_async(Distance, Ip, Port, NewNodeHash, TransactionId),
+                            {noreply, delete_node(Ip, Port, State)}
+                    end;
+                false ->
+                    ok
+            end,
             {noreply, NewState};
         {{error, _Error}, NewState} ->
             {noreply, NewState}
@@ -294,20 +307,28 @@ handle_info({check_node, Ip, Port}, State) ->
 
 %
 %
-handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket}) ->
+handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, my_node_id = MyNodeId}) ->
     NewState = case get_node(Ip, Port, State) of
-        Node = #node{active_transactions = ActiveTx} ->
+        Node = #node{active_transactions = ActiveTx, hash = CurrNodeHash, transaction_id = TransactionId} ->
             case erline_dht_message:parse_krpc_response(Response, ActiveTx) of
-                {ok, ping, NodeHash, NewActiveTx} ->
-                    Params = [
-                        {hash,                NodeHash},
-                        {last_changed,        calendar:local_time()},
-                        {ping_timer,          schedule_next_ping(Node)},
-                        {active_transactions, NewActiveTx},
-                        {status,              active}
-                    ],
-                    io:format("xxxxxxxx async udp handled~n"),
-                    update_node(Ip, Port, Params, State);
+                {ok, ping, NewNodeHash, NewActiveTx} ->
+                    case NewNodeHash =:= CurrNodeHash of
+                        true ->
+                            Params = [
+                                {hash,                NewNodeHash},
+                                {last_changed,        calendar:local_time()},
+                                {ping_timer,          schedule_next_ping(Node)},
+                                {active_transactions, NewActiveTx},
+                                {status,              active}
+                            ],
+                            io:format("xxxxxxxx async udp handled~n"),
+                            update_node(Ip, Port, Params, State);
+                        false -> % If hash changed, move node to another bucket
+                            {ok, Distance} = erline_dht_helper:get_distance(MyNodeId, NewNodeHash),
+                            io:format("xxxxxxxx hash changed=~p~n", [Distance]),
+                            ok = add_node_async(Distance, Ip, Port, NewNodeHash, TransactionId),
+                            delete_node(Ip, Port, State)
+                    end;
                 {ok, find_node, _Nodes, _NewActiveTx} ->
                     % @todo implement
                     State;
@@ -452,6 +473,7 @@ do_ping_sync(Ip, Port, State = #state{my_node_id = MyNodeId, socket = Socket}, T
     case erline_dht_message:send_and_handle_ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries) of
         {ok, NodeHash} ->
             Params = [
+                % @todo chech hash and change bucket?
                 {hash,         NodeHash},
                 {last_changed, calendar:local_time()},
                 {ping_timer,   schedule_next_ping(Node)},

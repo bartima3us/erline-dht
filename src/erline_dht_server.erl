@@ -126,7 +126,7 @@ handle_cast(_Request, State) ->
 handle_info(init_k_buckets, State) ->
     ok = lists:foreach(fun (Distance) ->
         ok = erline_dht_bucket_sup:start_k_bucket(?K, Distance, ?MY_NODE_ID)
-    end, lists:seq(1, 160)),
+    end, lists:seq(0, 160)), % @todo tackle zero. Maybe need to change a hash?
     {noreply, State}.
 
 

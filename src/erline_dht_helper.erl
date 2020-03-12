@@ -42,6 +42,7 @@ socket_passive(Socket) ->
 
 %%  @doc
 %%  Get distance (in integer) between two 20 bytes length hashes.
+%%  1 is further than 160, but 0 is the nearest (1,2,...,160,0)!
 %%
 get_distance(Hash, NodeHash) when
     byte_size(Hash) =/= byte_size(NodeHash)

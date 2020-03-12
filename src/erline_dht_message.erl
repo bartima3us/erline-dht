@@ -237,7 +237,11 @@ parse_krpc_response(Response, ActiveTx) ->
                         {ok, <<"e">>} ->
                             % {ok,{list,[202,<<"Server Error">>]}
                             {ok, {list, E}} = dict:find(<<"e">>, ResponseDict),
-                            {error, {krpc_error, E}}
+                            {error, {krpc_error, E}};
+                        {ok, <<"q">>} ->
+                            % @todo implement
+                            io:format("Got query~n"),
+                            {error, not_implemented}
                     end;
                 false ->
                     {error, {non_existing_transaction, TransactionId}}
