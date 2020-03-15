@@ -28,10 +28,14 @@
 ]).
 
 -define(SERVER, ?MODULE).
+-define(CHECK_NODE_TIMEOUT, 60000).
+-define(NEXT_PING_LOW_TIME, 300000).
+-define(NEXT_PING_HIGH_TIME, 840000).
 
--type status()  :: unknown | active | not_active.
--type request() :: ping | find_node | get_peers | announce.
--type tx_id()   :: binary().
+-type status()      :: unknown | active | not_active.
+-type request()     :: ping | find_node | get_peers | announce.
+-type tx_id()       :: binary().
+-type active_tx()   :: {request(), tx_id()}.
 
 -record(node, {
     ip_port                         :: {inet:ip_address(), inet:port_number()},
@@ -225,7 +229,7 @@ get_bucket_and_node(Ip, Port, [Bucket = #bucket{nodes = Nodes} | Buckets]) ->
 -spec update_transaction_id(
     Ip          :: inet:ip_address(),
     Port        :: inet:port_number(),
-    NewActiveTx :: [{request(), tx_id()}],
+    NewActiveTx :: [active_tx()],
     State       :: #state{}
 ) -> State :: #state{}.
 
@@ -262,7 +266,7 @@ update_transaction_id(Node = #node{transaction_id = LastTransactionIdBin}) ->
     Params  :: [{hash, binary()} |
                 {last_changed, calendar:datetime()} |
                 {ping_timer, reference()} |
-                {active_transactions, [{request(), tx_id()}]} |
+                {active_transactions, [active_tx()]} |
                 transaction_id |
                 {status | status()}],
     State   :: #state{}
@@ -288,5 +292,70 @@ update_node(Ip, Port, Params, State = #state{not_assigned_nodes = NotAssignedNod
             NewNodes = lists:keyreplace({Ip, Port}, #node.ip_port, NotAssignedNodes, UpdatedNode),
             State#state{not_assigned_nodes = NewNodes}
     end.
+
+
+%%
+%%
+%%
+-spec delete_node(
+    Ip          :: inet:ip_address(),
+    Port        :: inet:port_number(),
+    State       :: #state{}
+) -> State :: #state{}.
+
+delete_node(Ip, Port, State = #state{not_assigned_nodes = NotAssignedNodes, buckets = Buckets}) ->
+    {ok, Bucket, _Node} = get_bucket_and_node(Ip, Port, State),
+    case Bucket of
+        #bucket{distance = Dist, nodes = Nodes} ->
+            NewNodes = lists:keydelete({Ip, Port}, #node.ip_port, Nodes),
+            NewBucket = Bucket#bucket{nodes = NewNodes},
+            NewBuckets = lists:keyreplace(Dist, #bucket.distance, Buckets, NewBucket),
+            State#state{buckets = NewBuckets};
+        false ->
+            NewNodes = lists:keydelete({Ip, Port}, #node.ip_port, NotAssignedNodes),
+            State#state{not_assigned_nodes = NewNodes}
+    end.
+
+
+%%
+%%
+%%
+-spec cancel_timer(
+    Node :: #node{}
+) -> ok.
+
+cancel_timer(#node{ping_timer = undefined}) ->
+    ok;
+
+cancel_timer(#node{ping_timer = PingTimer}) ->
+    erlang:cancel_timer(PingTimer),
+    ok.
+
+
+%%  @doc
+%%  @private
+%%  5-14 min.
+%%
+-spec schedule_next_ping(
+    Ip      :: inet:ip_address(),
+    Port    :: inet:port_number()
+) -> reference().
+
+schedule_next_ping(Ip, Port) ->
+    Time = crypto:rand_uniform(?NEXT_PING_LOW_TIME, ?NEXT_PING_HIGH_TIME),
+    erlang:send_after(Time, self(), {ping, Ip, Port}).
+
+%%
+%%
+-spec schedule_next_ping(
+    Node :: #node{}
+) -> reference() | undefined.
+
+schedule_next_ping(#node{ip_port = {Ip, Port}, ping_timer = undefined}) ->
+    Time = crypto:rand_uniform(?NEXT_PING_LOW_TIME, ?NEXT_PING_HIGH_TIME),
+    erlang:send_after(Time, self(), {ping, Ip, Port});
+
+schedule_next_ping(#node{}) ->
+    undefined.
 
 
