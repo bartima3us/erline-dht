@@ -29,18 +29,22 @@
 
 -define(SERVER, ?MODULE).
 
+-type status()  :: unknown | active | not_active.
+-type request() :: ping | find_node | get_peers | announce.
+-type tx_id()   :: binary().
+
 -record(node, {
     ip_port                         :: {inet:ip_address(), inet:port_number()},
     hash                            :: binary(),
     token                           :: binary(),
     last_changed                    :: calendar:datetime(),
-    transaction_id      = <<0,0>>   :: binary(),
-    active_transactions = []        :: [binary()],
+    transaction_id      = <<0,0>>   :: tx_id(),
+    active_transactions = []        :: [{request(), tx_id()}],
     ping_timer                      :: reference(),
     % active        - node responding.
     % unknown       - node not responding. <  1 min elapsed.
     % not_active    - node not responding. >= 1 min elapsed.
-    status              = unknown   :: unknown | active | not_active
+    status              = unknown   :: status()
 }).
 
 -record(bucket, {
@@ -171,6 +175,34 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
+
+%%
+%%
+%%
+-spec do_ping_async(
+    Ip      :: inet:ip_address(),
+    Port    :: inet:port_number(),
+    State   :: #state{}
+) -> {ok, State :: #state{}}.
+
+do_ping_async(Ip, Port, State = #state{my_node_hash = MyNodeHash, socket = Socket}) ->
+    {ok, _Bucket, Node} = get_bucket_and_node(Ip, Port, State),
+    #node{transaction_id = TxId, active_transactions = CurrActiveTx} = Node,
+    NewState0 = update_transaction_id(Ip, Port, [{ping, TxId} | CurrActiveTx], State),
+    ok = erline_dht_helper:socket_active(Socket),
+    ok = erline_dht_message:send_ping(Ip, Port, Socket, MyNodeHash, TxId),
+    {ok, NewState0}.
+
+
+%%
+%%
+%%
+-spec get_bucket_and_node(
+    Ip      :: inet:ip_address(),
+    Port    :: inet:port_number(),
+    State   :: #state{}
+) -> false | {ok, Bucket :: #bucket{} | false, Node :: #node{}}.
+
 get_bucket_and_node(Ip, Port, #state{not_assigned_nodes = NotAssignedNodes, buckets = Buckets}) ->
     case lists:keysearch({Ip, Port}, #node.ip_port, NotAssignedNodes) of
         {value, Node} -> {ok, false, Node};
@@ -187,27 +219,27 @@ get_bucket_and_node(Ip, Port, [Bucket = #bucket{nodes = Nodes} | Buckets]) ->
     end.
 
 
-%%
-%%
-%%
-do_ping_async(Ip, Port, State = #state{my_node_hash = MyNodeHash, socket = Socket}) ->
-    {ok, _Bucket, Node} = get_bucket_and_node(Ip, Port, State),
-    #node{transaction_id = TxId, active_transactions = CurrActiveTx} = Node,
-    NewState0 = update_transaction_id(Ip, Port, [{ping, TxId} | CurrActiveTx], State),
-    ok = erline_dht_helper:socket_active(Socket),
-    ok = erline_dht_message:send_ping(Ip, Port, Socket, MyNodeHash, TxId),
-    {ok, NewState0}.
-
-
 %%  @private
 %%  Increase node current transaction ID by 1.
 %%
+-spec update_transaction_id(
+    Ip          :: inet:ip_address(),
+    Port        :: inet:port_number(),
+    NewActiveTx :: [{request(), tx_id()}],
+    State       :: #state{}
+) -> State :: #state{}.
+
 update_transaction_id(Ip, Port, NewActiveTx, State = #state{}) ->
     Params = [
         transaction_id,
         {active_transactions, NewActiveTx}
     ],
     update_node(Ip, Port, Params, State).
+
+
+-spec update_transaction_id(
+    Node :: #node{}
+) -> Node :: #node{}.
 
 update_transaction_id(Node = #node{transaction_id = undefined}) ->
     Node#node{transaction_id = <<0,0>>};
@@ -224,6 +256,18 @@ update_transaction_id(Node = #node{transaction_id = LastTransactionIdBin}) ->
 %%
 %%
 %%
+-spec update_node(
+    Ip      :: inet:ip_address(),
+    Port    :: inet:port_number(),
+    Params  :: [{hash, binary()} |
+                {last_changed, calendar:datetime()} |
+                {ping_timer, reference()} |
+                {active_transactions, [{request(), tx_id()}]} |
+                transaction_id |
+                {status | status()}],
+    State   :: #state{}
+) -> State :: #state{}.
+
 update_node(Ip, Port, Params, State = #state{not_assigned_nodes = NotAssignedNodes, buckets = Buckets}) ->
     {ok, Bucket, Node} = get_bucket_and_node(Ip, Port, State),
     UpdatedNode = lists:foldl(fun
@@ -242,7 +286,7 @@ update_node(Ip, Port, Params, State = #state{not_assigned_nodes = NotAssignedNod
             State#state{buckets = NewBuckets};
         false ->
             NewNodes = lists:keyreplace({Ip, Port}, #node.ip_port, NotAssignedNodes, UpdatedNode),
-            State#state{not_assigned_nodes = NewNodes};
+            State#state{not_assigned_nodes = NewNodes}
     end.
 
 
