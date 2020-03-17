@@ -14,7 +14,8 @@
 %% API
 -export([
     start_link/2,
-    add_node/2
+    add_node/2,
+    get_all_nodes/1
 ]).
 
 %% gen_server callbacks
@@ -93,6 +94,10 @@ add_node(Ip, Port) ->
     gen_server:cast(?SERVER, {add_node, Ip, Port}).
 
 
+get_all_nodes(Distance) ->
+    gen_server:call(?SERVER, {get_all_nodes, Distance}).
+
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -119,6 +124,23 @@ init([K, MyNodeHash]) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
+handle_call({get_all_nodes, Distance}, _From, State = #state{buckets = Buckets}) ->
+    Response = case lists:keysearch(Distance, #bucket.distance, Buckets) of
+        {value, #bucket{nodes = Nodes}} ->
+            lists:map(fun (Node) ->
+                #node{
+                    ip_port         = {Ip, Port},
+                    hash            = Hash,
+                    last_changed    = LastChanged,
+                    status          = Status
+                } = Node,
+                #{ip => Ip, port => Port, hash => Hash, status => Status, last_changed => LastChanged}
+            end, Nodes);
+        false ->
+            []
+    end,
+    {reply, Response, State};
+
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -167,7 +189,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                         {status,              active}
                     ],
                     case Bucket of
-                        % Already assigned to bucket node
+                        % Node is already assigned to the bucket
                         #bucket{distance = CurrDist} ->
                             case CurrDist =:= NewDist of
                                 % If hash is the same, update node data
@@ -220,9 +242,8 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%%===================================================================
-%%% Internal functions
+%%% Request functions
 %%%===================================================================
-
 
 %%
 %%
@@ -241,6 +262,10 @@ do_ping_async(Ip, Port, State = #state{my_node_hash = MyNodeHash, socket = Socke
     ok = erline_dht_message:send_ping(Ip, Port, Socket, MyNodeHash, TxId),
     {ok, NewState0}.
 
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
 
 %%
 %%
@@ -405,17 +430,6 @@ cancel_timer(#node{ping_timer = PingTimer}) ->
 %%  @doc
 %%  @private
 %%  5-14 min.
-%%
--spec schedule_next_ping(
-    Ip      :: inet:ip_address(),
-    Port    :: inet:port_number()
-) -> reference().
-
-schedule_next_ping(Ip, Port) ->
-    Time = crypto:rand_uniform(?NEXT_PING_LOW_TIME, ?NEXT_PING_HIGH_TIME),
-    erlang:send_after(Time, self(), {ping, Ip, Port}).
-
-%%
 %%
 -spec schedule_next_ping(
     Node :: #node{}
