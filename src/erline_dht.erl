@@ -34,7 +34,7 @@ stop(_State) ->
 %%
 %%
 add_node_to_bucket(Ip, Port) ->
-    erline_dht_server:add_node(Ip, Port).
+    erline_dht_bucket:add_node(Ip, Port).
 
 
 %%
