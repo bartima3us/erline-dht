@@ -36,6 +36,7 @@
 -type request()     :: ping | find_node | get_peers | announce.
 -type tx_id()       :: binary().
 -type active_tx()   :: {request(), tx_id()}.
+-type distance()    :: 1..160.
 
 -record(node, {
     ip_port                         :: {inet:ip_address(), inet:port_number()},
@@ -48,11 +49,12 @@
     % active        - node responding.
     % unknown       - node not responding. <  1 min elapsed.
     % not_active    - node not responding. >= 1 min elapsed.
-    status              = unknown   :: status()
+    status              = unknown   :: status(),
+    buffer                          :: []   % @todo implement
 }).
 
 -record(bucket, {
-    distance    :: 1..160,
+    distance    :: distance(),
     nodes = []  :: [#node{}]
 }).
 
@@ -357,5 +359,43 @@ schedule_next_ping(#node{ip_port = {Ip, Port}, ping_timer = undefined}) ->
 
 schedule_next_ping(#node{}) ->
     undefined.
+
+
+%%
+%%
+%%
+-spec maybe_clear_bucket(
+    Distance :: distance(),
+    State    :: #state{}
+) -> {ok, State :: #state{}} | false.
+
+maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
+    {value, Bucket} = lists:keysearch(Distance, #bucket.distance, Buckets),
+    #bucket{nodes = Nodes} = Bucket,
+    case erlang:length(Nodes) < K of
+        true  ->
+            {ok, State};
+        false ->
+            {NotRemovable, Removable} = lists:splitwith(fun
+                (#node{status = active})     -> true;
+                (#node{status = unknown})    -> true;
+                (#node{status = not_active}) -> false
+            end, Nodes),
+            case erlang:length(Removable) of
+                0 ->
+                    false;
+                _ ->
+                    [RemovedNode | RemovableLeft] = lists:sort(
+                        fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
+                            LastChanged1 =< LastChanged2
+                        end,
+                        Removable
+                    ),
+                    ok = cancel_timer(RemovedNode),
+                    NewBucket = Bucket#bucket{nodes = NotRemovable ++ RemovableLeft},
+                    NewBuckets = lists:keyreplace(Distance, #bucket.distance, Buckets, NewBucket),
+                    {ok, State#state{buckets = NewBuckets}}
+            end
+    end.
 
 
