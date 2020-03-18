@@ -41,11 +41,8 @@
 send_ping(Ip, Port, Socket, MyNodeId, TransactionId) ->
     Payload = ping_request(TransactionId, MyNodeId),
     case gen_udp:send(Socket, Ip, Port, Payload) of
-        ok ->
-            ok;
-        {error, Reason} ->
-            io:format("xxxxxxx Socket error=~p", [Reason]),
-            ok
+        ok              -> ok;
+        {error, einval} -> ok % Ip or port can be malformed
     end.
 
 
@@ -247,7 +244,7 @@ parse_krpc_response(Response, ActiveTx) ->
                                     NewActiveTx = ActiveTx -- [{ReqType, TransactionId}],
                                     {ok, ReqType, ParseResponseFun(ReqType, R), NewActiveTx};
                                 {ok, <<"e">>} ->
-                                    % {ok,{list,[202,<<"Server Error">>]}
+                                    % Example: {ok,{list,[202,<<"Server Error">>]}
                                     {ok, {list, E}} = dict:find(<<"e">>, ResponseDict),
                                     {error, {krpc_error, E}};
                                 {ok, <<"q">>} ->
