@@ -40,7 +40,13 @@
 %%
 send_ping(Ip, Port, Socket, MyNodeId, TransactionId) ->
     Payload = ping_request(TransactionId, MyNodeId),
-    ok = gen_udp:send(Socket, Ip, Port, Payload).
+    case gen_udp:send(Socket, Ip, Port, Payload) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            io:format("xxxxxxx Socket error=~p", [Reason]),
+            ok
+    end.
 
 
 %%
@@ -217,37 +223,46 @@ error_response(TransactionId, ErrorCode, ErrorDescription) when
 %%
 parse_krpc_response(Response, ActiveTx) ->
     ParseResponseFun = fun
-        (ping, Response) ->
-            {ok, NodeHash} = dict:find(<<"id">>, Response),
+        (ping, Resp) ->
+            {ok, NodeHash} = dict:find(<<"id">>, Resp),
             NodeHash;
-        (find_node, Response) ->
-            {ok, CompactNodeInfo} = dict:find(<<"nodes">>, Response),
-            erline_dht_helper:parse_compact_node_info(CompactNodeInfo)
+        (find_node, Resp) ->
+            case dict:find(<<"nodes">>, Resp) of
+                {ok, CompactNodeInfo} ->
+                    erline_dht_helper:parse_compact_node_info(CompactNodeInfo);
+                error ->
+                    io:format("xxxxxx something went wrong1=~p~n", [Resp]),
+                    []
+            end
     end,
-    {ok, {dict, ResponseDict}} = erline_dht_bencoding:decode(Response),
-    case dict:find(<<"t">>, ResponseDict) of
-        {ok, TransactionId} ->
-            case lists:keysearch(TransactionId, 2, ActiveTx) of
-                {value, {ReqType, TransactionId}} ->
-                    case dict:find(<<"y">>, ResponseDict) of
-                        {ok, <<"r">>} ->
-                            {ok, {dict, R}} = dict:find(<<"r">>, ResponseDict),
-                            NewActiveTx = ActiveTx -- [{ReqType, TransactionId}],
-                            {ok, ReqType, ParseResponseFun(ReqType, R), NewActiveTx};
-                        {ok, <<"e">>} ->
-                            % {ok,{list,[202,<<"Server Error">>]}
-                            {ok, {list, E}} = dict:find(<<"e">>, ResponseDict),
-                            {error, {krpc_error, E}};
-                        {ok, <<"q">>} ->
-                            % @todo implement
-                            io:format("Got query~n"),
-                            {error, not_implemented}
+    case erline_dht_bencoding:decode(Response) of
+        {ok, {dict, ResponseDict}} ->
+            case dict:find(<<"t">>, ResponseDict) of
+                {ok, TransactionId} ->
+                    case lists:keysearch(TransactionId, 2, ActiveTx) of
+                        {value, {ReqType, TransactionId}} ->
+                            case dict:find(<<"y">>, ResponseDict) of
+                                {ok, <<"r">>} ->
+                                    {ok, {dict, R}} = dict:find(<<"r">>, ResponseDict),
+                                    NewActiveTx = ActiveTx -- [{ReqType, TransactionId}],
+                                    {ok, ReqType, ParseResponseFun(ReqType, R), NewActiveTx};
+                                {ok, <<"e">>} ->
+                                    % {ok,{list,[202,<<"Server Error">>]}
+                                    {ok, {list, E}} = dict:find(<<"e">>, ResponseDict),
+                                    {error, {krpc_error, E}};
+                                {ok, <<"q">>} ->
+                                    % @todo implement
+                                    io:format("Got query~n"),
+                                    {error, not_implemented}
+                            end;
+                        false ->
+                            {error, {non_existing_transaction, TransactionId}}
                     end;
-                false ->
-                    {error, {non_existing_transaction, TransactionId}}
+                error ->
+                     {error, {bad_response, ResponseDict}}
             end;
-        Other ->
-             {error, {bad_response, Other}}
+        {error, unparsed} ->
+            {error, {bad_response, Response}}
     end.
 
 

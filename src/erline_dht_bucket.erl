@@ -64,7 +64,8 @@
     socket                      :: port(),
     k                           :: pos_integer(),
     buckets             = []    :: [#bucket{}],
-    not_assigned_nodes  = []    :: [#node{}]
+    not_assigned_nodes  = []    :: [#node{}],       % @todo move to ETS
+    not_active_nodes    = []    :: [{inet:ip_address(), inet:port_number()}]    % @todo move to ETS
 }).
 
 %%%===================================================================
@@ -115,7 +116,16 @@ get_all_nodes(Distance) ->
 %%--------------------------------------------------------------------
 init([K, MyNodeHash]) ->
     {ok, Socket} = gen_udp:open(0, [binary, {active, true}]),
-    {ok, #state{socket = Socket, k = K, my_node_hash = MyNodeHash}}.
+    Buckets = lists:foldl(fun (Dist, AccBuckets) ->
+        [#bucket{distance = Dist} | AccBuckets]
+    end, [], lists:seq(0, 160)), % @todo from zero?
+    NewState = #state{
+        socket       = Socket,
+        k            = K,
+        my_node_hash = MyNodeHash,
+        buckets      = lists:reverse(Buckets)
+    },
+    {ok, NewState}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -152,13 +162,20 @@ handle_call(_Request, _From, State) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_cast({add_node, Ip, Port}, State = #state{not_assigned_nodes = NotAssignedNodes}) ->
-    NewState = case get_bucket_and_node(Ip, Port, State) of
+    NewState = case maybe_buckets_full(State) of
         false ->
-            NewNotAssignedNodes = [#node{ip_port = {Ip, Port}} | NotAssignedNodes],
-            {ok, NewState0} = do_ping_async(Ip, Port, State#state{not_assigned_nodes = NewNotAssignedNodes}),
-            NewState0;
-        {ok, _Bucket, #node{}} ->
-            State % @todo fire event: {error, already_added}
+            case get_bucket_and_node(Ip, Port, State) of
+                false ->
+                    NewNotAssignedNodes = [#node{ip_port = {Ip, Port}} | NotAssignedNodes],
+                    {ok, NewState0} = do_ping_async(Ip, Port, State#state{not_assigned_nodes = NewNotAssignedNodes}),
+                    NewState0;
+                {ok, _Bucket, #node{}} ->
+                    State % @todo fire event: {error, already_added}
+            end;
+        true ->
+            io:format("xxxxxx Buckets are full~n"),
+            % @todo fire event: {error, buckets_are_full}
+            State
     end,
     {noreply, NewState};
 
@@ -177,42 +194,74 @@ handle_cast(_Request, State) ->
 %%--------------------------------------------------------------------
 handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, my_node_hash = MyNodeHash}) ->
     NewState = case get_bucket_and_node(Ip, Port, State) of
-       {ok, Bucket, Node = #node{active_transactions = ActiveTx}} ->
-        case erline_dht_message:parse_krpc_response(Response, ActiveTx) of
+        {ok, Bucket, Node = #node{active_transactions = ActiveTx}} ->
+            case erline_dht_message:parse_krpc_response(Response, ActiveTx) of
                 {ok, ping, NewNodeHash, NewActiveTx} ->
-                    {ok, NewDist} = erline_dht_helper:get_distance(NewNodeHash, MyNodeHash),
-                    Params = [
-                        {hash,                NewNodeHash},
-                        {last_changed,        calendar:local_time()},
-                        {ping_timer,          schedule_next_ping(Node)},
-                        {active_transactions, NewActiveTx},
-                        {status,              active}
-                    ],
-                    case Bucket of
-                        % Node is already assigned to the bucket
-                        #bucket{distance = CurrDist} ->
-                            case CurrDist =:= NewDist of
-                                % If hash is the same, update node data
-                                true ->
-                                    io:format("xxxxxxxx dist is the same. Dist=~p~n", [CurrDist]),
-                                    update_node(Ip, Port, Params, State);
-                                 % If hash is changed, move node to another bucket
+                    case erline_dht_helper:get_distance(MyNodeHash, NewNodeHash) of
+                        {ok, NewDist} ->
+                            Params = [
+                                {hash,                NewNodeHash},
+                                {last_changed,        calendar:local_time()},
+                                {ping_timer,          schedule_next_ping(Node)},
+                                {status,              active}
+                            ],
+                            case Bucket of
+                                % Node is already assigned to the bucket
+                                #bucket{distance = CurrDist} ->
+                                    case CurrDist =:= NewDist of
+                                        % If hash is the same, update node data
+                                        true ->
+                                            io:format("xxxxxxxx dist is the same. Dist=~p~n", [CurrDist]),
+                                            update_node(Ip, Port, Params ++ [{active_transactions, NewActiveTx}], State);
+                                         % If hash is changed, move node to another bucket
+                                        false ->
+                                            io:format("xxxxxxxx dist is changed. Dist=~p~n", [NewDist]),
+                                            update_node(Ip, Port, Params ++ [{assign, NewDist}, {active_transactions, NewActiveTx}], State)
+                                    end;
+                                % New node
                                 false ->
-                                    io:format("xxxxxxxx dist is changed. Dist=~p~n", [NewDist]),
-                                    update_node(Ip, Port, Params ++ [{assign, NewDist}], State)
+                                    {ok, NewState0} = do_find_node_async(Ip, Port, MyNodeHash, State),
+                                    io:format("xxxxxx new node=~p, NewDist=~p~n", [{Ip, Port}, NewDist]),
+                                    case maybe_clear_bucket(NewDist, NewState0) of
+                                        {ok, NewState1} ->
+                                            update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState1);
+                                        % No place in the bucket. Add to buffer
+                                        false ->
+                                            NewState0 % @todo implement add to buffer
+                                    end
                             end;
-                        % New node
-                        false ->
-                            case maybe_clear_bucket(NewDist, State) of
-                                % No place in the bucket. Add to buffer
-                                {ok, NewState0} ->
-                                    io:format("xxxxxxxx new node. Dist=~p~n", [NewDist]),
-                                    update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState0);
-                                false ->
-                                    State % @todo implement add to buffer
-                            end
-                    end
-        end
+                        {error, {different_hash_length, _, _}} ->
+                            % @todo delete node
+                            io:format("xxxxx Diff hash~n"),
+                            State
+                    end;
+                {ok, find_node, Nodes, NewActiveTx} ->
+                    ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort}) ->
+                        % Can't assume that node we got is live so we need to ping it.
+                        ok = add_node(FoundIp, FoundPort)
+                    end, Nodes),
+                    io:format("xxxxxxx Find node resp ~p~n", [NewActiveTx]),
+                    Params = [
+                        {last_changed,        calendar:local_time()},
+                        {active_transactions, NewActiveTx}
+                    ],
+                    update_node(Ip, Port, Params, State);
+                {error, {krpc_error, Reason}} ->
+                    io:format("xxxxxx krpc_error=~p~n", [Reason]),
+                    State;
+                {error, {non_existing_transaction, TxId}} ->
+                    io:format("xxxxxx non_existing_transaction=~p | ~p~n", [{Ip, Port}, TxId]),
+                    State;
+                {error, not_implemented} ->
+                    % @todo temporary. Remove later.
+                    State;
+                {error, {bad_response, BadResponse}} ->
+                    io:format("xxxxxx BadResponse=~p~n", [BadResponse]),
+                    State
+            end;
+        false ->
+            io:format("xxxxxx Node not found=~p~n", [{Ip, Port}]),
+            State
     end,
     {noreply, NewState}.
 
@@ -260,6 +309,25 @@ do_ping_async(Ip, Port, State = #state{my_node_hash = MyNodeHash, socket = Socke
     NewState0 = update_transaction_id(Ip, Port, [{ping, TxId} | CurrActiveTx], State),
     ok = erline_dht_helper:socket_active(Socket),
     ok = erline_dht_message:send_ping(Ip, Port, Socket, MyNodeHash, TxId),
+    {ok, NewState0}.
+
+
+%%
+%%
+%%
+-spec do_find_node_async(
+    Ip      :: inet:ip_address(),
+    Port    :: inet:port_number(),
+    Target  :: binary(),
+    State   :: #state{}
+) -> {ok, State :: #state{}}.
+
+do_find_node_async(Ip, Port, Target, State = #state{socket = Socket, my_node_hash = MyNodeHash}) ->
+    {ok, _Bucket, Node} = get_bucket_and_node(Ip, Port, State),
+    #node{transaction_id = TxId, active_transactions = CurrActiveTx} = Node,
+    NewState0 = update_transaction_id(Ip, Port, [{find_node, TxId} | CurrActiveTx], State),
+    ok = erline_dht_helper:socket_active(Socket),
+    ok = erline_dht_message:send_find_node(Ip, Port, Socket, MyNodeHash, TxId, Target),
     {ok, NewState0}.
 
 
@@ -349,7 +417,7 @@ update_node(Ip, Port, Params, State = #state{not_assigned_nodes = NotAssignedNod
         ({last_changed, LastChanged}, AccNode)      -> AccNode#node{last_changed = LastChanged};
         ({ping_timer, PingTimerRef}, AccNode)       -> AccNode#node{ping_timer = PingTimerRef};
         ({active_transactions, ActiveTx}, AccNode)  -> AccNode#node{active_transactions = ActiveTx};
-        (transaction_id, AccNode)                   -> AccNode#node{transaction_id = update_transaction_id(Node)};
+        (transaction_id, AccNode)                   -> update_transaction_id(AccNode);
         ({status, Status}, AccNode)                 -> AccNode#node{status = Status};
         ({assign, _Dist}, AccNode)                  -> AccNode
     end, Node, Params),
@@ -360,8 +428,8 @@ update_node(Ip, Port, Params, State = #state{not_assigned_nodes = NotAssignedNod
         lists:keyreplace(Dist, #bucket.distance, Buckets, NewBucketUpdated)
     end,
     case Bucket of
-        NewBuckets = CurrBucket = #bucket{distance = CurrDist, nodes = Nodes} ->
-            case lists:keysearch(assign, 1, Params) of
+        CurrBucket = #bucket{distance = CurrDist, nodes = Nodes} ->
+            NewBuckets = case lists:keysearch(assign, 1, Params) of
                 % Assign update node to the new bucket if there is assign param
                 {value, {assign, NewDist}} ->
                     CurrBucketUpdated = CurrBucket#bucket{nodes = lists:keydelete({Ip, Port}, #node.ip_port, Nodes)},
@@ -452,36 +520,40 @@ schedule_next_ping(#node{}) ->
 ) -> {ok, State :: #state{}} | false.
 
 maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
-    case lists:keysearch(Distance, #bucket.distance, Buckets) of
-        {value, Bucket = #bucket{nodes = Nodes}} ->
-            case erlang:length(Nodes) < K of
-                true  ->
-                    {ok, State};
-                false ->
-                    {NotRemovable, Removable} = lists:splitwith(fun
-                        (#node{status = active})     -> true;
-                        (#node{status = unknown})    -> true;
-                        (#node{status = not_active}) -> false
-                    end, Nodes),
-                    case erlang:length(Removable) of
-                        0 ->
-                            false;
-                        _ ->
-                            [RemovedNode | RemovableLeft] = lists:sort(
-                                fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
-                                    LastChanged1 =< LastChanged2
-                                end,
-                                Removable
-                            ),
-                            ok = cancel_timer(RemovedNode),
-                            NewBucket = Bucket#bucket{nodes = NotRemovable ++ RemovableLeft},
-                            NewBuckets = lists:keyreplace(Distance, #bucket.distance, Buckets, NewBucket),
-                            {ok, State#state{buckets = NewBuckets}}
-                    end
-            end;
-        % If there isn't that bucket yet - create it
+    {value, Bucket = #bucket{nodes = Nodes}} = lists:keysearch(Distance, #bucket.distance, Buckets),
+    case erlang:length(Nodes) < K of
+        true  ->
+            {ok, State};
         false ->
-            {ok, State#state{buckets = [#bucket{distance = Distance} | Buckets]}}
+            {NotRemovable, Removable} = lists:splitwith(fun
+                (#node{status = active})     -> true;
+                (#node{status = unknown})    -> true;
+                (#node{status = not_active}) -> false
+            end, Nodes),
+            case erlang:length(Removable) of
+                0 ->
+                    false;
+                _ ->
+                    [RemovedNode | RemovableLeft] = lists:sort(
+                        fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
+                            LastChanged1 =< LastChanged2
+                        end,
+                        Removable
+                    ),
+                    ok = cancel_timer(RemovedNode),
+                    NewBucket = Bucket#bucket{nodes = NotRemovable ++ RemovableLeft},
+                    NewBuckets = lists:keyreplace(Distance, #bucket.distance, Buckets, NewBucket),
+                    {ok, State#state{buckets = NewBuckets}}
+            end
     end.
+
+
+%%
+%%
+%%
+maybe_buckets_full(#state{k = K, buckets = Buckets}) -> maybe_buckets_full(Buckets, K).
+maybe_buckets_full([], _) -> true;
+maybe_buckets_full([#bucket{nodes = Nodes} | _], K) when length(Nodes) /= K -> false;
+maybe_buckets_full([_ | Buckets], K) -> maybe_buckets_full(Buckets, K).
 
 

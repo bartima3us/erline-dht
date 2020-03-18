@@ -47,7 +47,7 @@ socket_passive(Socket) ->
 get_distance(Hash, NodeHash) when
     byte_size(Hash) =/= byte_size(NodeHash)
     ->
-    {error, different_hash_length};
+    {error, {different_hash_length, Hash, NodeHash}};
 
 get_distance(Hash, NodeHash) when
     Hash =:= NodeHash
