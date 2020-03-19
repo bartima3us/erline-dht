@@ -551,6 +551,10 @@ maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
 %%
 %%
 %%
+-spec maybe_buckets_full(
+    State    :: #state{}
+) -> boolean().
+
 maybe_buckets_full(#state{k = K, buckets = Buckets}) -> maybe_buckets_full(Buckets, K).
 maybe_buckets_full([], _) -> true;
 maybe_buckets_full([#bucket{nodes = Nodes} | _], K) when length(Nodes) /= K -> false;
