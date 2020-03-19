@@ -15,7 +15,8 @@
 -export([
     start_link/2,
     add_node/2,
-    get_all_nodes/1
+    get_all_nodes_in_bucket/1,
+    get_not_assigned_nodes/0
 ]).
 
 %% gen_server callbacks
@@ -32,6 +33,7 @@
 -define(CHECK_NODE_TIMEOUT, 60000).
 -define(NEXT_PING_LOW_TIME, 300000).
 -define(NEXT_PING_HIGH_TIME, 840000).
+-define(NOT_ASSIGNED_NODES_TABLE, 'erline_dht$not_assigned_nodes').
 
 -type status()      :: unknown | active | not_active.
 -type request()     :: ping | find_node | get_peers | announce.
@@ -64,7 +66,6 @@
     socket                      :: port(),
     k                           :: pos_integer(),
     buckets             = []    :: [#bucket{}],
-    not_assigned_nodes  = []    :: [#node{}],       % @todo move to ETS
     not_active_nodes    = []    :: [{inet:ip_address(), inet:port_number()}]    % @todo move to ETS
 }).
 
@@ -95,8 +96,19 @@ add_node(Ip, Port) ->
     gen_server:cast(?SERVER, {add_node, Ip, Port}).
 
 
-get_all_nodes(Distance) ->
-    gen_server:call(?SERVER, {get_all_nodes, Distance}).
+%%
+%%
+%%
+get_all_nodes_in_bucket(Distance) ->
+    gen_server:call(?SERVER, {get_all_nodes_in_bucket, Distance}).
+
+
+%%
+%%
+%%
+get_not_assigned_nodes() ->
+    gen_server:call(?SERVER, get_not_assigned_nodes).
+
 
 
 %%%===================================================================
@@ -119,6 +131,7 @@ init([K, MyNodeHash]) ->
     Buckets = lists:foldl(fun (Dist, AccBuckets) ->
         [#bucket{distance = Dist} | AccBuckets]
     end, [], lists:seq(0, 160)), % @todo from zero?
+    ets:new(?NOT_ASSIGNED_NODES_TABLE, [set, named_table, {keypos, #node.ip_port}]),
     NewState = #state{
         socket       = Socket,
         k            = K,
@@ -134,7 +147,7 @@ init([K, MyNodeHash]) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-handle_call({get_all_nodes, Distance}, _From, State = #state{buckets = Buckets}) ->
+handle_call({get_all_nodes_in_bucket, Distance}, _From, State = #state{buckets = Buckets}) ->
     Response = case lists:keysearch(Distance, #bucket.distance, Buckets) of
         {value, #bucket{nodes = Nodes}} ->
             lists:map(fun (Node) ->
@@ -151,6 +164,17 @@ handle_call({get_all_nodes, Distance}, _From, State = #state{buckets = Buckets})
     end,
     {reply, Response, State};
 
+handle_call(get_not_assigned_nodes, _From, State = #state{}) ->
+    Response = lists:map(fun (Node) ->
+        #node{
+            ip_port         = {Ip, Port},
+            hash            = Hash,
+            last_changed    = LastChanged
+        } = Node,
+        #{ip => Ip, port => Port, hash => Hash, last_changed => LastChanged}
+    end, ets:match_object(?NOT_ASSIGNED_NODES_TABLE, #node{_ = '_'})),
+    {reply, Response, State};
+
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -161,19 +185,19 @@ handle_call(_Request, _From, State) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-handle_cast({add_node, Ip, Port}, State = #state{not_assigned_nodes = NotAssignedNodes}) ->
+handle_cast({add_node, Ip, Port}, State = #state{}) ->
     NewState = case maybe_buckets_full(State) of
         false ->
             case get_bucket_and_node(Ip, Port, State) of
                 false ->
-                    NewNotAssignedNodes = [#node{ip_port = {Ip, Port}} | NotAssignedNodes],
-                    {ok, NewState0} = do_ping_async(Ip, Port, State#state{not_assigned_nodes = NewNotAssignedNodes}),
+                    true = ets:insert(?NOT_ASSIGNED_NODES_TABLE, #node{ip_port = {Ip, Port}}),
+                    {ok, NewState0} = do_ping_async(Ip, Port, State),
                     NewState0;
                 {ok, _Bucket, #node{}} ->
                     State % @todo fire event: {error, already_added}
             end;
         true ->
-            io:format("xxxxxx Buckets are full~n"),
+            io:format("Buckets are full~n"),
             % @todo fire event: {error, buckets_are_full}
             State
     end,
@@ -211,17 +235,17 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                                     case CurrDist =:= NewDist of
                                         % If hash is the same, update node data
                                         true ->
-                                            io:format("xxxxxxxx dist is the same. Dist=~p~n", [CurrDist]),
+                                            io:format("Dist is the same. Dist=~p~n", [CurrDist]),
                                             update_node(Ip, Port, Params ++ [{active_transactions, NewActiveTx}], State);
                                          % If hash is changed, move node to another bucket
                                         false ->
-                                            io:format("xxxxxxxx dist is changed. Dist=~p~n", [NewDist]),
+                                            io:format("Dist is changed. Dist=~p~n", [NewDist]),
                                             update_node(Ip, Port, Params ++ [{assign, NewDist}, {active_transactions, NewActiveTx}], State)
                                     end;
                                 % New node
                                 false ->
                                     {ok, NewState0} = do_find_node_async(Ip, Port, MyNodeHash, State),
-                                    io:format("xxxxxx new node=~p, NewDist=~p~n", [{Ip, Port}, NewDist]),
+                                    io:format("New node=~p, NewDist=~p~n", [{Ip, Port}, NewDist]),
                                     case maybe_clear_bucket(NewDist, NewState0) of
                                         {ok, NewState1} ->
                                             update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState1);
@@ -232,7 +256,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                             end;
                         {error, {different_hash_length, _, _}} ->
                             % @todo delete node
-                            io:format("xxxxx Diff hash~n"),
+                            io:format("Diff hash~n"),
                             State
                     end;
                 {ok, find_node, Nodes, NewActiveTx} ->
@@ -240,30 +264,36 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                         % Can't assume that node we got is live so we need to ping it.
                         ok = add_node(FoundIp, FoundPort)
                     end, Nodes),
-                    io:format("xxxxxxx Find node resp ~p~n", [NewActiveTx]),
+                    io:format("Find node resp ~p~n", [NewActiveTx]),
                     Params = [
                         {last_changed,        calendar:local_time()},
                         {active_transactions, NewActiveTx}
                     ],
                     update_node(Ip, Port, Params, State);
                 {error, {krpc_error, Reason}} ->
-                    io:format("xxxxxx krpc_error=~p~n", [Reason]),
+                    io:format("krpc_error=~p~n", [Reason]),
                     State;
                 {error, {non_existing_transaction, TxId}} ->
-                    io:format("xxxxxx non_existing_transaction=~p | ~p~n", [{Ip, Port}, TxId]),
+                    io:format("non_existing_transaction=~p | ~p~n", [{Ip, Port}, TxId]),
                     State;
                 {error, not_implemented} ->
                     % @todo temporary. Remove later.
                     State;
                 {error, {bad_response, BadResponse}} ->
-                    io:format("xxxxxx BadResponse=~p~n", [BadResponse]),
+                    io:format("BadResponse=~p~n", [BadResponse]),
                     State
             end;
         false ->
-            io:format("xxxxxx Node not found=~p~n", [{Ip, Port}]),
+            io:format("Node not found=~p~n", [{Ip, Port}]),
             State
     end,
-    {noreply, NewState}.
+    {noreply, NewState};
+
+%
+%
+handle_info({ping, _Ip, _Port}, State = #state{}) ->
+    % @todo implement
+    {noreply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -344,10 +374,10 @@ do_find_node_async(Ip, Port, Target, State = #state{socket = Socket, my_node_has
     State   :: #state{}
 ) -> false | {ok, Bucket :: #bucket{} | false, Node :: #node{}}.
 
-get_bucket_and_node(Ip, Port, #state{not_assigned_nodes = NotAssignedNodes, buckets = Buckets}) ->
-    case lists:keysearch({Ip, Port}, #node.ip_port, NotAssignedNodes) of
-        {value, Node} -> {ok, false, Node};
-        false         -> get_bucket_and_node(Ip, Port, Buckets)
+get_bucket_and_node(Ip, Port, #state{buckets = Buckets}) ->
+    case ets:match_object(?NOT_ASSIGNED_NODES_TABLE, #node{ip_port = {Ip, Port}, _ = '_'}) of
+        [Node] -> {ok, false, Node};
+        []     -> get_bucket_and_node(Ip, Port, Buckets)
     end;
 
 get_bucket_and_node(_Ip, _Port, []) ->
@@ -410,7 +440,7 @@ update_transaction_id(Node = #node{transaction_id = LastTransactionIdBin}) ->
     State   :: #state{}
 ) -> State :: #state{}.
 
-update_node(Ip, Port, Params, State = #state{not_assigned_nodes = NotAssignedNodes, buckets = Buckets}) ->
+update_node(Ip, Port, Params, State = #state{buckets = Buckets}) ->
     {ok, Bucket, Node} = get_bucket_and_node(Ip, Port, State),
     UpdatedNode = lists:foldl(fun
         ({hash, Hash}, AccNode)                     -> AccNode#node{hash = Hash};
@@ -446,37 +476,14 @@ update_node(Ip, Port, Params, State = #state{not_assigned_nodes = NotAssignedNod
             case lists:keysearch(assign, 1, Params) of
                 % Assign updated node to the bucket if there is assign param
                 {value, {assign, NewDist}} ->
-                    NewNotAssignedNodes = lists:keydelete({Ip, Port}, #node.ip_port, NotAssignedNodes),
+                    true = ets:match_delete(?NOT_ASSIGNED_NODES_TABLE, #node{ip_port = {Ip, Port}, _ = '_'}),
                     NewBuckets = AddNodeToBucketFun(NewDist),
-                    State#state{not_assigned_nodes = NewNotAssignedNodes, buckets = NewBuckets};
+                    State#state{buckets = NewBuckets};
                 % Just put updated node the not assigned nodes list
                 false ->
-                    NewNodes = lists:keyreplace({Ip, Port}, #node.ip_port, NotAssignedNodes, UpdatedNode),
-                    State#state{not_assigned_nodes = NewNodes}
+                    true = ets:insert(?NOT_ASSIGNED_NODES_TABLE, UpdatedNode),
+                    State
             end
-    end.
-
-
-%%
-%%
-%%
--spec delete_node(
-    Ip          :: inet:ip_address(),
-    Port        :: inet:port_number(),
-    State       :: #state{}
-) -> State :: #state{}.
-
-delete_node(Ip, Port, State = #state{not_assigned_nodes = NotAssignedNodes, buckets = Buckets}) ->
-    {ok, Bucket, _Node} = get_bucket_and_node(Ip, Port, State),
-    case Bucket of
-        #bucket{distance = Dist, nodes = Nodes} ->
-            NewNodes = lists:keydelete({Ip, Port}, #node.ip_port, Nodes),
-            NewBucket = Bucket#bucket{nodes = NewNodes},
-            NewBuckets = lists:keyreplace(Dist, #bucket.distance, Buckets, NewBucket),
-            State#state{buckets = NewBuckets};
-        false ->
-            NewNodes = lists:keydelete({Ip, Port}, #node.ip_port, NotAssignedNodes),
-            State#state{not_assigned_nodes = NewNodes}
     end.
 
 

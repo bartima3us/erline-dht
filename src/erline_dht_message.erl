@@ -42,7 +42,8 @@ send_ping(Ip, Port, Socket, MyNodeId, TransactionId) ->
     Payload = ping_request(TransactionId, MyNodeId),
     case gen_udp:send(Socket, Ip, Port, Payload) of
         ok              -> ok;
-        {error, einval} -> ok % Ip or port can be malformed
+        {error, einval} -> ok; % Ip or port can be malformed
+        {error, eagain} -> ok  % @todo ???
     end.
 
 

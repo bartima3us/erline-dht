@@ -9,7 +9,8 @@
 
 -export([
     add_node_to_bucket/2,
-    get_all_nodes_in_bucket/1
+    get_all_nodes_in_bucket/1,
+    get_not_assigned_nodes/0
 ]).
 
 %% Application callbacks
@@ -41,7 +42,14 @@ add_node_to_bucket(Ip, Port) ->
 %%
 %%
 get_all_nodes_in_bucket(Distance) ->
-    erline_dht_bucket:get_all_nodes(Distance).
+    erline_dht_bucket:get_all_nodes_in_bucket(Distance).
+
+
+%%
+%%
+%%
+get_not_assigned_nodes() ->
+    erline_dht_bucket:get_not_assigned_nodes().
 
 
 %%====================================================================
