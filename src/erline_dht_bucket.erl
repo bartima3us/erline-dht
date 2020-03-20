@@ -336,7 +336,11 @@ code_change(_OldVsn, State, _Extra) ->
 do_ping_async(Ip, Port, State = #state{my_node_hash = MyNodeHash, socket = Socket}) ->
     {ok, _Bucket, Node} = get_bucket_and_node(Ip, Port, State),
     #node{transaction_id = TxId, active_transactions = CurrActiveTx} = Node,
-    NewState0 = update_transaction_id(Ip, Port, [{ping, TxId} | CurrActiveTx], State),
+    Params = [
+        transaction_id,
+        {active_transactions, [{ping, TxId} | CurrActiveTx]}
+    ],
+    NewState0 = update_node(Ip, Port, Params, State),
     ok = erline_dht_helper:socket_active(Socket),
     ok = erline_dht_message:send_ping(Ip, Port, Socket, MyNodeHash, TxId),
     {ok, NewState0}.
@@ -355,7 +359,11 @@ do_ping_async(Ip, Port, State = #state{my_node_hash = MyNodeHash, socket = Socke
 do_find_node_async(Ip, Port, Target, State = #state{socket = Socket, my_node_hash = MyNodeHash}) ->
     {ok, _Bucket, Node} = get_bucket_and_node(Ip, Port, State),
     #node{transaction_id = TxId, active_transactions = CurrActiveTx} = Node,
-    NewState0 = update_transaction_id(Ip, Port, [{find_node, TxId} | CurrActiveTx], State),
+    Params = [
+        transaction_id,
+        {active_transactions, [{find_node, TxId} | CurrActiveTx]}
+    ],
+    NewState0 = update_node(Ip, Port, Params, State),
     ok = erline_dht_helper:socket_active(Socket),
     ok = erline_dht_message:send_find_node(Ip, Port, Socket, MyNodeHash, TxId, Target),
     {ok, NewState0}.
@@ -393,21 +401,6 @@ get_bucket_and_node(Ip, Port, [Bucket = #bucket{nodes = Nodes} | Buckets]) ->
 %%  @private
 %%  Increase node current transaction ID by 1.
 %%
--spec update_transaction_id(
-    Ip          :: inet:ip_address(),
-    Port        :: inet:port_number(),
-    NewActiveTx :: [active_tx()],
-    State       :: #state{}
-) -> State :: #state{}.
-
-update_transaction_id(Ip, Port, NewActiveTx, State = #state{}) ->
-    Params = [
-        transaction_id,
-        {active_transactions, NewActiveTx}
-    ],
-    update_node(Ip, Port, Params, State).
-
-
 -spec update_transaction_id(
     Node :: #node{}
 ) -> Node :: #node{}.
