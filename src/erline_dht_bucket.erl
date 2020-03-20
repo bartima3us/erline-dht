@@ -35,24 +35,24 @@
 -define(NEXT_PING_HIGH_TIME, 840000).
 -define(NOT_ASSIGNED_NODES_TABLE, 'erline_dht$not_assigned_nodes').
 
--type status()      :: unknown | active | not_active.
+-type status()      :: suspicious | active | not_active.
 -type request()     :: ping | find_node | get_peers | announce.
 -type tx_id()       :: binary().
 -type active_tx()   :: {request(), tx_id()}.
 -type distance()    :: 1..160.
 
 -record(node, {
-    ip_port                         :: {inet:ip_address(), inet:port_number()},
-    hash                            :: binary(),
-    token                           :: binary(),
-    last_changed                    :: calendar:datetime(),
-    transaction_id      = <<0,0>>   :: tx_id(),
-    active_transactions = []        :: [{request(), tx_id()}],
-    ping_timer                      :: reference(),
+    ip_port                             :: {inet:ip_address(), inet:port_number()},
+    hash                                :: binary(),
+    token                               :: binary(),
+    last_changed                        :: calendar:datetime(),
+    transaction_id      = <<0,0>>       :: tx_id(),
+    active_transactions = []            :: [{request(), tx_id()}],
+    ping_timer                          :: reference(),
     % active        - node responding.
-    % unknown       - node not responding. <  1 min elapsed.
+    % suspicious    - node not responding. <  1 min elapsed.
     % not_active    - node not responding. >= 1 min elapsed.
-    status              = unknown   :: status()
+    status              = suspicious    :: status()
 }).
 
 -record(bucket, {
@@ -529,30 +529,28 @@ schedule_next_ping(#node{}) ->
 ) -> {ok, State :: #state{}} | false.
 
 maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
-    {value, Bucket = #bucket{nodes = Nodes}} = lists:keysearch(Distance, #bucket.distance, Buckets),
+    {value, #bucket{nodes = Nodes}} = lists:keysearch(Distance, #bucket.distance, Buckets),
     case erlang:length(Nodes) < K of
         true  ->
             {ok, State};
         false ->
-            {NotRemovable, Removable} = lists:splitwith(fun
+            {_NotRemovable, Removable} = lists:splitwith(fun
                 (#node{status = active})     -> true;
-                (#node{status = unknown})    -> true;
+                (#node{status = suspicious}) -> true;
                 (#node{status = not_active}) -> false
             end, Nodes),
             case erlang:length(Removable) of
                 0 ->
                     false;
                 _ ->
-                    [RemovedNode | RemovableLeft] = lists:sort(
+                    [#node{ip_port = {Ip, Port}} = RemovedNode | _] = lists:sort(
                         fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
                             LastChanged1 =< LastChanged2
                         end,
                         Removable
                     ),
                     ok = cancel_timer(RemovedNode),
-                    NewBucket = Bucket#bucket{nodes = NotRemovable ++ RemovableLeft},
-                    NewBuckets = lists:keyreplace(Distance, #bucket.distance, Buckets, NewBucket),
-                    {ok, State#state{buckets = NewBuckets}}
+                    {ok, update_node(Ip, Port, [unassign], State)}
             end
     end.
 
