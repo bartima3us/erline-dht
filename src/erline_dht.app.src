@@ -5,8 +5,7 @@
   {mod, { erline_dht, []}},
   {applications,
    [kernel,
-    stdlib,
-    gproc
+    stdlib
    ]},
   {env,[]},
   {modules, []},

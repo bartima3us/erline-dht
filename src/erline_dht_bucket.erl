@@ -53,7 +53,8 @@
     % active        - node responding.
     % suspicious    - node not responding. <  1 min elapsed.
     % not_active    - node not responding. >= 1 min elapsed.
-    status              = suspicious    :: status()
+    status              = suspicious    :: status(),
+    distance                            :: distance() % Denormalized field. Mapping: #node.distance = #bucket.distance.
 }).
 
 -record(bucket, {
@@ -198,12 +199,16 @@ handle_call(_Request, _From, State) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-handle_cast({add_node, Ip, Port, Hash}, State = #state{}) ->
+handle_cast({add_node, Ip, Port, Hash}, State = #state{my_node_hash = MyNodeHash}) ->
     NewState = case maybe_buckets_full(State) of
         false ->
             case get_bucket_and_node(Ip, Port, State) of
                 false ->
-                    NewNode = #node{ip_port = {Ip, Port}, hash = Hash},
+                    {ok, Distance} = case Hash of
+                        undefined -> {ok, undefined};
+                        Hash      -> erline_dht_helper:get_distance(MyNodeHash, Hash)
+                    end,
+                    NewNode = #node{ip_port = {Ip, Port}, hash = Hash, distance = Distance},
                     true = ets:insert(?NOT_ASSIGNED_NODES_TABLE, NewNode),
                     {ok, NewState0} = do_ping_async(Ip, Port, State),
                     NewState0;
@@ -448,17 +453,26 @@ update_transaction_id(Node = #node{transaction_id = LastTransactionIdBin}) ->
     State   :: #state{}
 ) -> State :: #state{}.
 
-update_node(Ip, Port, Params, State = #state{buckets = Buckets}) ->
+update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets = Buckets}) ->
     {ok, Bucket, Node} = get_bucket_and_node(Ip, Port, State),
     UpdatedNode = lists:foldl(fun
-        ({hash, Hash}, AccNode)                     -> AccNode#node{hash = Hash};
-        ({last_changed, LastChanged}, AccNode)      -> AccNode#node{last_changed = LastChanged};
-        ({ping_timer, PingTimerRef}, AccNode)       -> AccNode#node{ping_timer = PingTimerRef};
-        ({active_transactions, ActiveTx}, AccNode)  -> AccNode#node{active_transactions = ActiveTx};
-        (transaction_id, AccNode)                   -> update_transaction_id(AccNode);
-        ({status, Status}, AccNode)                 -> AccNode#node{status = Status};
-        ({assign, _Dist}, AccNode)                  -> AccNode;
-        (unassign, AccNode)                         -> AccNode#node{hash = undefined}
+        ({hash, Hash}, AccNode) ->
+            {ok, Distance} = erline_dht_helper:get_distance(MyNodeHash, Hash),
+            AccNode#node{hash = Hash, distance = Distance};
+        ({last_changed, LastChanged}, AccNode) ->
+            AccNode#node{last_changed = LastChanged};
+        ({ping_timer, PingTimerRef}, AccNode)  ->
+            AccNode#node{ping_timer = PingTimerRef};
+        ({active_transactions, ActiveTx}, AccNode) ->
+            AccNode#node{active_transactions = ActiveTx};
+        (transaction_id, AccNode) ->
+            update_transaction_id(AccNode);
+        ({status, Status}, AccNode) ->
+            AccNode#node{status = Status};
+        ({assign, _Dist}, AccNode) ->
+            AccNode;
+        (unassign, AccNode) ->
+            AccNode#node{hash = undefined}
     end, Node, Params),
     AddNodeToBucketFun = fun (Dist) ->
         {value, NewBucket} = lists:keysearch(Dist, #bucket.distance, Buckets),
