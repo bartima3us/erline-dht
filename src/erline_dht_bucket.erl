@@ -15,6 +15,7 @@
 -export([
     start_link/2,
     add_node/2,
+    add_node/3,
     get_all_nodes_in_bucket/1,
     get_not_assigned_nodes/0
 ]).
@@ -44,6 +45,7 @@
 -record(node, {
     ip_port                             :: {inet:ip_address(), inet:port_number()},
     hash                                :: binary(),
+    potential_hash                      :: binary(), % Hash about node from other node (find_node message)
     token                               :: binary(),
     last_changed                        :: calendar:datetime(),
     transaction_id      = <<0,0>>       :: tx_id(),
@@ -93,7 +95,14 @@ start_link(K, MyNodeHash) ->
 %%
 %%
 add_node(Ip, Port) ->
-    gen_server:cast(?SERVER, {add_node, Ip, Port}).
+    gen_server:cast(?SERVER, {add_node, Ip, Port, undefined}).
+
+
+%%
+%%
+%%
+add_node(Ip, Port, PotentialHash) ->
+    gen_server:cast(?SERVER, {add_node, Ip, Port, PotentialHash}).
 
 
 %%
@@ -154,10 +163,18 @@ handle_call({get_all_nodes_in_bucket, Distance}, _From, State = #state{buckets =
                 #node{
                     ip_port         = {Ip, Port},
                     hash            = Hash,
+                    potential_hash  = PotentialHash,
                     last_changed    = LastChanged,
                     status          = Status
                 } = Node,
-                #{ip => Ip, port => Port, hash => Hash, status => Status, last_changed => LastChanged}
+                #{
+                    ip               => Ip,
+                    port            => Port,
+                    hash            => Hash,
+                    potential_hash  => PotentialHash,
+                    status          => Status,
+                    last_changed    => LastChanged
+                }
             end, Nodes);
         false ->
             []
@@ -185,12 +202,13 @@ handle_call(_Request, _From, State) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-handle_cast({add_node, Ip, Port}, State = #state{}) ->
+handle_cast({add_node, Ip, Port, PotentialHash}, State = #state{}) ->
     NewState = case maybe_buckets_full(State) of
         false ->
             case get_bucket_and_node(Ip, Port, State) of
                 false ->
-                    true = ets:insert(?NOT_ASSIGNED_NODES_TABLE, #node{ip_port = {Ip, Port}}),
+                    NewNode = #node{ip_port = {Ip, Port}, potential_hash = PotentialHash},
+                    true = ets:insert(?NOT_ASSIGNED_NODES_TABLE, NewNode),
                     {ok, NewState0} = do_ping_async(Ip, Port, State),
                     NewState0;
                 {ok, _Bucket, #node{}} ->
@@ -260,9 +278,9 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                             State
                     end;
                 {ok, find_node, Nodes, NewActiveTx} ->
-                    ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort}) ->
+                    ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, potential_hash := PotentialHash}) ->
                         % Can't assume that node we got is live so we need to ping it.
-                        ok = add_node(FoundIp, FoundPort)
+                        ok = add_node(FoundIp, FoundPort, PotentialHash)
                     end, Nodes),
                     io:format("Find node resp ~p~n", [NewActiveTx]),
                     Params = [
@@ -424,12 +442,14 @@ update_transaction_id(Node = #node{transaction_id = LastTransactionIdBin}) ->
     Ip      :: inet:ip_address(),
     Port    :: inet:port_number(),
     Params  :: [{hash, Hash :: binary()} |
+                {potential_hash, PotentialHash :: binary()} |
                 {last_changed, LastChanged :: calendar:datetime()} |
                 {ping_timer, PingTimerRef :: reference()} |
                 {active_transactions, [ActiveTx :: active_tx()]} |
                 transaction_id |
                 {status, Status :: status()} |
-                {assign, Dist :: distance()}],
+                {assign, Dist :: distance()} |
+                unassign],
     State   :: #state{}
 ) -> State :: #state{}.
 
@@ -437,6 +457,7 @@ update_node(Ip, Port, Params, State = #state{buckets = Buckets}) ->
     {ok, Bucket, Node} = get_bucket_and_node(Ip, Port, State),
     UpdatedNode = lists:foldl(fun
         ({hash, Hash}, AccNode)                     -> AccNode#node{hash = Hash};
+        ({potential_hash, PotentialHash}, AccNode)  -> AccNode#node{potential_hash = PotentialHash};
         ({last_changed, LastChanged}, AccNode)      -> AccNode#node{last_changed = LastChanged};
         ({ping_timer, PingTimerRef}, AccNode)       -> AccNode#node{ping_timer = PingTimerRef};
         ({active_transactions, ActiveTx}, AccNode)  -> AccNode#node{active_transactions = ActiveTx};
