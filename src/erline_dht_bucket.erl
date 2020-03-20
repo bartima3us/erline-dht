@@ -32,8 +32,12 @@
 
 -define(SERVER, ?MODULE).
 -define(CHECK_NODE_TIMEOUT, 60000).
--define(NEXT_PING_LOW_TIME, 300000).
--define(NEXT_PING_HIGH_TIME, 840000).
+-define(BUCKET_PING_LOW_TIME, 300000). % 6 min
+-define(BUCKET_PING_HIGH_TIME, 840000). % 12 min
+-define(BUCKET_CHECK_LOW_TIME, 60000). % 1 min
+-define(BUCKET_CHECK_HIGH_TIME, 180000). % 3 min
+-define(ACTIVE_TTL, 840). % 14 min
+-define(SUSPICIOUS_TTL, 900). % 15 min (ACTIVE_TTL + 1 min)
 -define(NOT_ASSIGNED_NODES_TABLE, 'erline_dht$not_assigned_nodes').
 
 -type status()      :: suspicious | active | not_active.
@@ -49,16 +53,14 @@
     last_changed                        :: calendar:datetime(),
     transaction_id      = <<0,0>>       :: tx_id(),
     active_transactions = []            :: [{request(), tx_id()}],
-    ping_timer                          :: reference(),
-    % active        - node responding.
-    % suspicious    - node not responding. <  1 min elapsed.
-    % not_active    - node not responding. >= 1 min elapsed.
     status              = suspicious    :: status(),
     distance                            :: distance() % Denormalized field. Mapping: #node.distance = #bucket.distance.
 }).
 
 -record(bucket, {
     distance            :: distance(),
+    check_timer         :: reference(),
+    ping_timer          :: reference(),
     nodes       = []    :: [#node{}],
     buffer      = []    :: [#node{}]   % @todo implement
 }).
@@ -136,8 +138,13 @@ get_not_assigned_nodes() ->
 %%--------------------------------------------------------------------
 init([K, MyNodeHash]) ->
     {ok, Socket} = gen_udp:open(0, [binary, {active, true}]),
-    Buckets = lists:foldl(fun (Dist, AccBuckets) ->
-        [#bucket{distance = Dist} | AccBuckets]
+    Buckets = lists:foldl(fun (Distance, AccBuckets) ->
+        NewBucket = #bucket{
+            check_timer = schedule_bucket_check(Distance),
+            ping_timer  = schedule_bucket_ping(Distance),
+            distance    = Distance
+        },
+        [NewBucket | AccBuckets]
     end, [], lists:seq(0, 160)), % @todo from zero?
     ets:new(?NOT_ASSIGNED_NODES_TABLE, [set, named_table, {keypos, #node.ip_port}]),
     NewState = #state{
@@ -204,9 +211,14 @@ handle_cast({add_node, Ip, Port, Hash}, State = #state{my_node_hash = MyNodeHash
         false ->
             case get_bucket_and_node(Ip, Port, State) of
                 false ->
-                    {ok, Distance} = case Hash of
-                        undefined -> {ok, undefined};
-                        Hash      -> erline_dht_helper:get_distance(MyNodeHash, Hash)
+                    Distance = case Hash of
+                        undefined ->
+                            undefined;
+                        Hash ->
+                            case erline_dht_helper:get_distance(MyNodeHash, Hash) of
+                                {ok, Dist}       -> Dist;
+                                {error, _Reason} -> undefined
+                            end
                     end,
                     NewNode = #node{ip_port = {Ip, Port}, hash = Hash, distance = Distance},
                     true = ets:insert(?NOT_ASSIGNED_NODES_TABLE, NewNode),
@@ -237,16 +249,15 @@ handle_cast(_Request, State) ->
 %%--------------------------------------------------------------------
 handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, my_node_hash = MyNodeHash}) ->
     NewState = case get_bucket_and_node(Ip, Port, State) of
-        {ok, Bucket, Node = #node{active_transactions = ActiveTx}} ->
+        {ok, Bucket, #node{active_transactions = ActiveTx}} ->
             case erline_dht_message:parse_krpc_response(Response, ActiveTx) of
                 {ok, ping, NewNodeHash, NewActiveTx} ->
                     case erline_dht_helper:get_distance(MyNodeHash, NewNodeHash) of
                         {ok, NewDist} ->
                             Params = [
-                                {hash,                NewNodeHash},
-                                {last_changed,        calendar:local_time()},
-                                {ping_timer,          schedule_next_ping(Node)},
-                                {status,              active}
+                                {hash,          NewNodeHash},
+                                {last_changed,  calendar:local_time()},
+                                {status,        active}
                             ],
                             case Bucket of
                                 % Node is already assigned to the bucket
@@ -269,14 +280,19 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                                         {ok, NewState1} ->
                                             update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState1);
                                         % No place in the bucket. Add to buffer
+                                        % @todo implement add to buffer
                                         false ->
-                                            NewState0 % @todo implement add to buffer
+                                            update_node(Ip, Port, Params ++ [{active_transactions, NewActiveTx}], State)
                                     end
                             end;
-                        {error, {different_hash_length, _, _}} ->
-                            % @todo delete node
-                            io:format("Diff hash~n"),
-                            State
+                        {error, _Reason} ->
+                            Params = [
+                                {hash,                NewNodeHash},
+                                {last_changed,        calendar:local_time()},
+                                {status,              not_active},
+                                {active_transactions, NewActiveTx}
+                            ],
+                            update_node(Ip, Port, Params, State)
                     end;
                 {ok, find_node, Nodes, NewActiveTx} ->
                     ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
@@ -303,6 +319,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                     State
             end;
         false ->
+            % @todo add to bucket
             io:format("Node not found=~p~n", [{Ip, Port}]),
             State
     end,
@@ -310,9 +327,48 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
 
 %
 %
-handle_info({ping, _Ip, _Port}, State = #state{}) ->
-    % @todo implement
-    {noreply, State}.
+handle_info({bucket_check, Distance}, State = #state{buckets = CurrBuckets}) ->
+    {value, #bucket{nodes = Nodes}} = lists:keysearch(Distance, #bucket.distance, CurrBuckets),
+    {NewState0, BecomeNotActive} = lists:foldl(fun (Node, {CurrAccState, BecomeNotActiveAcc}) ->
+        #node{ip_port = {Ip, Port}, last_changed = LastChanged, status = Status} = Node,
+        case erline_dht_helper:datetime_diff(calendar:local_time(), LastChanged) of
+            SecondsTillLastChanged when SecondsTillLastChanged > ?ACTIVE_TTL, Status =:= active ->
+                io:format("Node {~p, ~p} in bucket ~p became suspicious.~n", [Ip, Port, Distance]),
+                CurrAccState0 = update_node(Ip, Port, [{status, suspicious}], CurrAccState),
+                % Try to ping once again
+                {ok, NewAccState} = do_ping_async(Ip, Port, CurrAccState0),
+                {NewAccState, BecomeNotActiveAcc};
+            SecondsTillLastChanged when SecondsTillLastChanged > ?SUSPICIOUS_TTL, Status =:= suspicious ->
+                io:format("Node {~p, ~p} in bucket ~p became not_active.~n", [Ip, Port, Distance]),
+                {update_node(Ip, Port, [{status, not_active}], CurrAccState), BecomeNotActiveAcc + 1};
+            _SecondsTillLastChanged ->
+                {CurrAccState, BecomeNotActiveAcc}
+        end
+    end, {State, 0}, Nodes),
+    NewState1 = update_bucket(Distance, [check_timer], NewState0),
+    % Check if there are nodes which became not_active and try to replace them with nodes from not assigned nodes list
+    NewState2 = case BecomeNotActive of
+        0 ->
+            NewState1;
+        _ ->
+            lists:foldl(fun (#node{ip_port = {Ip, Port}}, CurrAccState) ->
+                {ok, NewAccState} = do_ping_async(Ip, Port, CurrAccState),
+                NewAccState
+            end, NewState1, ets:match_object(?NOT_ASSIGNED_NODES_TABLE, #node{distance = Distance, _ = '_'}))
+    end,
+    {noreply, NewState2};
+
+%
+%
+handle_info({bucket_ping, Distance}, State = #state{buckets = Buckets}) ->
+    io:format("Bucket (~p) ping.~n", [Distance]),
+    {value, #bucket{nodes = Nodes}} = lists:keysearch(Distance, #bucket.distance, Buckets),
+    NewState0 = lists:foldl(fun (#node{ip_port = {Ip, Port}}, CurrAccState) ->
+        {ok, NewAccState} = do_ping_async(Ip, Port, CurrAccState),
+        NewAccState
+    end, State, Nodes),
+    NewState1 = update_bucket(Distance, [ping_timer], NewState0),
+    {noreply, NewState1}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -359,10 +415,10 @@ do_ping_async(Ip, Port, State = #state{my_node_hash = MyNodeHash, socket = Socke
         transaction_id,
         {active_transactions, [{ping, TxId} | CurrActiveTx]}
     ],
-    NewState0 = update_node(Ip, Port, Params, State),
+    NewState = update_node(Ip, Port, Params, State),
     ok = erline_dht_helper:socket_active(Socket),
     ok = erline_dht_message:send_ping(Ip, Port, Socket, MyNodeHash, TxId),
-    {ok, NewState0}.
+    {ok, NewState}.
 
 
 %%
@@ -382,10 +438,10 @@ do_find_node_async(Ip, Port, Target, State = #state{socket = Socket, my_node_has
         transaction_id,
         {active_transactions, [{find_node, TxId} | CurrActiveTx]}
     ],
-    NewState0 = update_node(Ip, Port, Params, State),
+    NewState = update_node(Ip, Port, Params, State),
     ok = erline_dht_helper:socket_active(Socket),
     ok = erline_dht_message:send_find_node(Ip, Port, Socket, MyNodeHash, TxId, Target),
-    {ok, NewState0}.
+    {ok, NewState}.
 
 
 %%%===================================================================
@@ -444,7 +500,6 @@ update_transaction_id(Node = #node{transaction_id = LastTransactionIdBin}) ->
     Port    :: inet:port_number(),
     Params  :: [{hash, Hash :: binary()} |
                 {last_changed, LastChanged :: calendar:datetime()} |
-                {ping_timer, PingTimerRef :: reference()} |
                 {active_transactions, [ActiveTx :: active_tx()]} |
                 transaction_id |
                 {status, Status :: status()} |
@@ -457,12 +512,12 @@ update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets 
     {ok, Bucket, Node} = get_bucket_and_node(Ip, Port, State),
     UpdatedNode = lists:foldl(fun
         ({hash, Hash}, AccNode) ->
-            {ok, Distance} = erline_dht_helper:get_distance(MyNodeHash, Hash),
-            AccNode#node{hash = Hash, distance = Distance};
+            case erline_dht_helper:get_distance(MyNodeHash, Hash) of
+                {ok, Distance}   -> AccNode#node{hash = Hash, distance = Distance};
+                {error, _Reason} -> AccNode#node{hash = Hash}
+            end;
         ({last_changed, LastChanged}, AccNode) ->
             AccNode#node{last_changed = LastChanged};
-        ({ping_timer, PingTimerRef}, AccNode)  ->
-            AccNode#node{ping_timer = PingTimerRef};
         ({active_transactions, ActiveTx}, AccNode) ->
             AccNode#node{active_transactions = ActiveTx};
         (transaction_id, AccNode) ->
@@ -472,7 +527,7 @@ update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets 
         ({assign, _Dist}, AccNode) ->
             AccNode;
         (unassign, AccNode) ->
-            AccNode#node{hash = undefined}
+            AccNode
     end, Node, Params),
     AddNodeToBucketFun = fun (Dist) ->
         {value, NewBucket} = lists:keysearch(Dist, #bucket.distance, Buckets),
@@ -510,7 +565,7 @@ update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets 
                     true = ets:match_delete(?NOT_ASSIGNED_NODES_TABLE, #node{ip_port = {Ip, Port}, _ = '_'}),
                     NewBuckets = AddNodeToBucketFun(NewDist),
                     State#state{buckets = NewBuckets};
-                % Just put updated node the not assigned nodes list
+                % Just put updated node in the not assigned nodes list
                 false ->
                     true = ets:insert(?NOT_ASSIGNED_NODES_TABLE, UpdatedNode),
                     State
@@ -521,32 +576,48 @@ update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets 
 %%
 %%
 %%
--spec cancel_timer(
-    Node :: #node{}
-) -> ok.
+-spec update_bucket(
+    Distance    :: distance(),
+    Params  :: [check_timer |
+                ping_timer |
+                {nodes, [#node{}]}],
+    State   :: #state{}
+) -> State :: #state{}.
 
-cancel_timer(#node{ping_timer = undefined}) ->
-    ok;
+update_bucket(Distance, Params, State = #state{buckets = Buckets}) ->
+    {value, Bucket} = lists:keysearch(Distance, #bucket.distance, Buckets),
+    NewBucket = lists:foldl(fun
+        (check_timer, AccBucket) ->
+            AccBucket#bucket{check_timer = schedule_bucket_check(Distance)};
+        (ping_timer, AccBucket) ->
+            AccBucket#bucket{ping_timer = schedule_bucket_ping(Distance)};
+        ({nodes, Nodes}, AccBucket) ->
+            AccBucket#bucket{nodes = Nodes}
+    end, Bucket, Params),
+    State#state{buckets = lists:keyreplace(Distance, #bucket.distance, Buckets, NewBucket)}.
 
-cancel_timer(#node{ping_timer = PingTimer}) ->
-    erlang:cancel_timer(PingTimer),
-    ok.
-
-
-%%  @doc
-%%  @private
-%%  5-14 min.
 %%
--spec schedule_next_ping(
-    Node :: #node{}
-) -> reference() | undefined.
+%%
+%%
+-spec schedule_bucket_check(
+    Distance :: distance()
+) -> reference().
 
-schedule_next_ping(#node{ip_port = {Ip, Port}, ping_timer = undefined}) ->
-    Time = crypto:rand_uniform(?NEXT_PING_LOW_TIME, ?NEXT_PING_HIGH_TIME),
-    erlang:send_after(Time, self(), {ping, Ip, Port});
+schedule_bucket_check(Distance) ->
+    Time = crypto:rand_uniform(?BUCKET_CHECK_LOW_TIME, ?BUCKET_CHECK_HIGH_TIME),
+    erlang:send_after(Time, self(), {bucket_check, Distance}).
 
-schedule_next_ping(#node{}) ->
-    undefined.
+
+%%
+%%
+%%
+-spec schedule_bucket_ping(
+    Distance :: distance()
+) -> reference().
+
+schedule_bucket_ping(Distance) ->
+    Time = crypto:rand_uniform(?BUCKET_PING_LOW_TIME, ?BUCKET_PING_HIGH_TIME),
+    erlang:send_after(Time, self(), {bucket_ping, Distance}).
 
 
 %%
@@ -572,13 +643,13 @@ maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
                 0 ->
                     false;
                 _ ->
-                    [#node{ip_port = {Ip, Port}} = RemovedNode | _] = lists:sort(
+                    [Removed = #node{ip_port = {Ip, Port}} | _] = lists:sort(
                         fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
                             LastChanged1 =< LastChanged2
                         end,
                         Removable
                     ),
-                    ok = cancel_timer(RemovedNode),
+                    io:format("REMOVED NODE=~p~n", [Removed]),
                     {ok, update_node(Ip, Port, [unassign], State)}
             end
     end.

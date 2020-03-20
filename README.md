@@ -2,6 +2,7 @@ ErLine DHT
 =====
 
 - [Introduction](#introduction)
+- [Implementation details](#implementation_details)
 - [Status](#status)
 - [Tests](#tests)
 
@@ -9,6 +10,16 @@ ErLine DHT
 
 Kademlia based Mainline DHT implementation in Erlang.<br/>
 Derivative project from https://github.com/bartima3us/erl-bittorrent
+
+## <a name="implementation_details">Implementation details</a> ##
+
+* Buckets can contain K nodes where by default K=8.
+* If bucket is full, all other nodes will be placed in the pseudo-bucket - not assigned nodes list.
+* Every node in the bucket is pinged every 6-12 min (random amount from the range).
+* Every bucket is checked every 1-3 min (random amount from the range).
+* If during the check some `active` node last respond was more than 14 min ago - that node becomes `suspicious` and it is tried to ping one more time.
+* If during the check some `suspicious` node last respond was more than 15 min ago - that node becomes `not active`.
+* If node in the bucket becomes `not active`, it can be automatically replaced with `active` node from not assigned nodes list.
 
 ## <a name="status">Status</a> ##
 
