@@ -442,7 +442,8 @@ update_node(Ip, Port, Params, State = #state{buckets = Buckets}) ->
         ({active_transactions, ActiveTx}, AccNode)  -> AccNode#node{active_transactions = ActiveTx};
         (transaction_id, AccNode)                   -> update_transaction_id(AccNode);
         ({status, Status}, AccNode)                 -> AccNode#node{status = Status};
-        ({assign, _Dist}, AccNode)                  -> AccNode
+        ({assign, _Dist}, AccNode)                  -> AccNode;
+        (unassign, AccNode)                         -> AccNode#node{hash = undefined}
     end, Node, Params),
     AddNodeToBucketFun = fun (Dist) ->
         {value, NewBucket} = lists:keysearch(Dist, #bucket.distance, Buckets),
@@ -452,19 +453,27 @@ update_node(Ip, Port, Params, State = #state{buckets = Buckets}) ->
     end,
     case Bucket of
         CurrBucket = #bucket{distance = CurrDist, nodes = Nodes} ->
-            NewBuckets = case lists:keysearch(assign, 1, Params) of
+            % Check for `assign` param
+            NewBuckets0 = case lists:keysearch(assign, 1, Params) of
                 % Assign update node to the new bucket if there is assign param
                 {value, {assign, NewDist}} ->
                     CurrBucketUpdated = CurrBucket#bucket{nodes = lists:keydelete({Ip, Port}, #node.ip_port, Nodes)},
-                    NewBuckets0 = AddNodeToBucketFun(NewDist),
-                    lists:keyreplace(CurrDist, #bucket.distance, NewBuckets0, CurrBucketUpdated);
+                    lists:keyreplace(CurrDist, #bucket.distance, AddNodeToBucketFun(NewDist), CurrBucketUpdated);
                 % Just put update node to the old bucket
                 false ->
-                    NewNodes = lists:keyreplace({Ip, Port}, #node.ip_port, Nodes, UpdatedNode),
-                    NewBucket = Bucket#bucket{nodes = NewNodes},
-                    lists:keyreplace(CurrDist, #bucket.distance, Buckets, NewBucket)
+                    NewNodes0 = lists:keyreplace({Ip, Port}, #node.ip_port, Nodes, UpdatedNode),
+                    lists:keyreplace(CurrDist, #bucket.distance, Buckets, Bucket#bucket{nodes = NewNodes0})
             end,
-            State#state{buckets = NewBuckets};
+            % Check for `unassign` param
+            NewBuckets1 = case lists:keysearch(unassign, 1, Params) of
+                {value, unassign} ->
+                    true = ets:insert(?NOT_ASSIGNED_NODES_TABLE, UpdatedNode),
+                    NewNodes1 = lists:keydelete({Ip, Port}, #node.ip_port, Nodes),
+                    lists:keyreplace(CurrDist, #bucket.distance, Buckets, Bucket#bucket{nodes = NewNodes1});
+                false ->
+                    NewBuckets0
+            end,
+            State#state{buckets = NewBuckets1};
         false ->
             case lists:keysearch(assign, 1, Params) of
                 % Assign updated node to the bucket if there is assign param
