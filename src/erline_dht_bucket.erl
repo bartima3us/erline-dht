@@ -282,7 +282,8 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                                         % No place in the bucket. Add to buffer
                                         % @todo implement add to buffer
                                         false ->
-                                            update_node(Ip, Port, Params ++ [{active_transactions, NewActiveTx}], State)
+                                            io:format("Not enough space in the bucket=~p~n", [NewDist]),
+                                            update_node(Ip, Port, Params ++ [{active_transactions, NewActiveTx}], NewState0)
                                     end
                             end;
                         {error, _Reason} ->
@@ -549,8 +550,8 @@ update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets 
                     lists:keyreplace(CurrDist, #bucket.distance, Buckets, Bucket#bucket{nodes = NewNodes0})
             end,
             % Check for `unassign` param
-            NewBuckets1 = case lists:keysearch(unassign, 1, Params) of
-                {value, unassign} ->
+            NewBuckets1 = case lists:member(unassign, Params) of
+                true ->
                     true = ets:insert(?NOT_ASSIGNED_NODES_TABLE, UpdatedNode),
                     NewNodes1 = lists:keydelete({Ip, Port}, #node.ip_port, Nodes),
                     lists:keyreplace(CurrDist, #bucket.distance, Buckets, Bucket#bucket{nodes = NewNodes1});
@@ -634,15 +635,16 @@ maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
         true  ->
             {ok, State};
         false ->
-            {_NotRemovable, Removable} = lists:splitwith(fun
+            {_NotRemovable, Removable} = lists:partition(fun
                 (#node{status = active})     -> true;
                 (#node{status = suspicious}) -> true;
                 (#node{status = not_active}) -> false
             end, Nodes),
-            case erlang:length(Removable) of
-                0 ->
+            case Removable of
+                [] ->
                     false;
-                _ ->
+                [_|_] ->
+                    % Find and remove node with oldest last_changed datetime
                     [Removed = #node{ip_port = {Ip, Port}} | _] = lists:sort(
                         fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
                             LastChanged1 =< LastChanged2
