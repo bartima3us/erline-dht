@@ -17,7 +17,8 @@
     add_node/2,
     add_node/3,
     get_all_nodes_in_bucket/1,
-    get_not_assigned_nodes/0
+    get_not_assigned_nodes/0,
+    get_buckets_filling/0
 ]).
 
 %% gen_server callbacks
@@ -120,6 +121,13 @@ get_not_assigned_nodes() ->
     gen_server:call(?SERVER, get_not_assigned_nodes).
 
 
+%%
+%%
+%%
+get_buckets_filling() ->
+    gen_server:call(?SERVER, get_buckets_filling).
+
+
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -194,6 +202,12 @@ handle_call(get_not_assigned_nodes, _From, State = #state{}) ->
         } = Node,
         #{ip => Ip, port => Port, hash => Hash, last_changed => LastChanged}
     end, ets:match_object(?NOT_ASSIGNED_NODES_TABLE, #node{_ = '_'})),
+    {reply, Response, State};
+
+handle_call(get_buckets_filling, _From, State = #state{buckets = Buckets}) ->
+    Response = lists:map(fun (#bucket{distance = Dist, nodes = Nodes}) ->
+        #{distance => Dist, nodes => erlang:length(Nodes)}
+    end, Buckets),
     {reply, Response, State};
 
 handle_call(_Request, _From, State) ->
@@ -283,16 +297,17 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                                     end;
                                 % New node
                                 false ->
-                                    {ok, NewState0} = do_find_node_async(Ip, Port, MyNodeHash, State),
+                                    NewState0 = update_node(Ip, Port, [{active_transactions, NewActiveTx}], State),
+                                    {ok, NewState1} = do_find_node_async(Ip, Port, MyNodeHash, NewState0),
                                     io:format("New node=~p, NewDist=~p~n", [{Ip, Port}, NewDist]),
-                                    case maybe_clear_bucket(NewDist, NewState0) of
-                                        {ok, NewState1} ->
-                                            update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState1);
+                                    case maybe_clear_bucket(NewDist, NewState1) of
+                                        {ok, NewState2} ->
+                                            update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState2);
                                         % No place in the bucket. Add to buffer
                                         % @todo implement add to buffer
                                         false ->
                                             io:format("Not enough space in the bucket=~p~n", [NewDist]),
-                                            update_node(Ip, Port, Params ++ [{active_transactions, NewActiveTx}], NewState0)
+                                            update_node(Ip, Port, Params, NewState1)
                                     end
                             end;
                         {error, _Reason} ->
@@ -311,7 +326,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                         % Can't assume that node we got is live so we need to ping it.
                         ok = add_node(FoundIp, FoundPort, FoundedHash)
                     end, Nodes),
-                    io:format("Find node resp ~p~n", [NewActiveTx]),
+                    io:format("Find node resp. NewActiveTx=~p, IP=~p~n", [NewActiveTx, {Ip, Port}]),
                     Params = [
                         {last_changed,        calendar:local_time()},
                         {active_transactions, NewActiveTx}

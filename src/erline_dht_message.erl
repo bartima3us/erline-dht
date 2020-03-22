@@ -220,7 +220,7 @@ parse_krpc_response(Response, ActiveTx) ->
                                             {ok, {dict, R}} = dict:find(<<"r">>, ResponseDict),
                                             NewActiveTx = ActiveTx -- [{ReqType, TransactionId}],
                                             {ok, ReqType, r, ParseResponseFun(ReqType, R), NewActiveTx};
-                                        <<"e">> ->
+                                        <<"e">> -> % @todo update tx ids?
                                             % Example: {ok,{list,[202,<<"Server Error">>]}
                                             {ok, {list, E}} = dict:find(<<"e">>, ResponseDict),
                                             {error, {krpc_error, E}}
