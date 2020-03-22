@@ -46,17 +46,20 @@ socket_passive(Socket) ->
 %%  1 is further than 160, but 0 is the nearest (1,2,...,160,0)!
 %%
 get_distance(Hash, NodeHash) when
-    byte_size(Hash) =/= byte_size(NodeHash)
+    is_binary(Hash),
+    is_binary(NodeHash),
+    erlang:byte_size(Hash) =/= erlang:byte_size(NodeHash)
     ->
     {error, {different_hash_length, Hash, NodeHash}};
 
-get_distance(Hash, NodeHash) when
-    Hash =:= NodeHash
-    ->
+get_distance(Hash, NodeHash) when is_binary(Hash), is_binary(NodeHash), Hash =:= NodeHash ->
     {ok, 0};
 
+get_distance(Hash, NodeHash) when is_binary(Hash), is_binary(NodeHash) ->
+    get_distance(Hash, NodeHash, 0);
+
 get_distance(Hash, NodeHash) ->
-    get_distance(Hash, NodeHash, 0).
+    {error, {malformed_hashes, Hash, NodeHash}}.
 
 get_distance(<<Hash:1/bytes, HashRest/binary>>, <<NodeHash:1/bytes, NodeHashRest/binary>>, Result) when
     Hash =:= NodeHash ->

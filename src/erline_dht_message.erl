@@ -11,9 +11,8 @@
 
 -export([
     send_ping/5,
-    send_and_handle_ping/6,
+    respond_ping/5,
     send_find_node/6,
-    send_and_handle_find_node/6,
     ping_request/2,
     ping_response/2,
     find_node_request/3,
@@ -40,31 +39,15 @@
 %%
 send_ping(Ip, Port, Socket, MyNodeId, TransactionId) ->
     Payload = ping_request(TransactionId, MyNodeId),
-    case gen_udp:send(Socket, Ip, Port, Payload) of
-        ok              -> ok;
-        {error, einval} -> ok; % Ip or port can be malformed
-        {error, eagain} -> ok  % @todo ???
-    end.
+    ok = socket_send(Socket, Ip, Port, Payload).
 
 
 %%
 %%
 %%
-send_and_handle_ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries) ->
-    ok = erline_dht_helper:socket_active(Socket),
-    ok = send_ping(Ip, Port, Socket, MyNodeId, TransactionId),
-    receive
-        {udp, Socket, Ip, Port, Response} ->
-            case parse_krpc_response(Response, [{ping, TransactionId}]) of
-                {ok, ping, NodeHash, _NewActiveTx} -> {ok, NodeHash};
-                {error, Reason}                    -> {error, Reason}
-            end
-    after ?RECEIVE_TIMEOUT ->
-        case Tries > 1 of
-            true  -> send_and_handle_ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries - 1);
-            false -> {error, not_alive}
-        end
-    end.
+respond_ping(Ip, Port, Socket, MyNodeId, TransactionId) ->
+    Payload = ping_response(TransactionId, MyNodeId),
+    ok = socket_send(Socket, Ip, Port, Payload).
 
 
 %%
@@ -72,26 +55,7 @@ send_and_handle_ping(Ip, Port, Socket, MyNodeId, TransactionId, Tries) ->
 %%
 send_find_node(Ip, Port, Socket, MyNodeId, TransactionId, TargetNodeId) ->
     Payload = find_node_request(TransactionId, MyNodeId, TargetNodeId),
-    ok = gen_udp:send(Socket, Ip, Port, Payload).
-
-
-%%
-%%
-%%
-send_and_handle_find_node(Ip, Port, Socket, MyNodeId, TransactionId, TargetNodeId) ->
-    ok = send_find_node(Ip, Port, Socket, MyNodeId, TransactionId, TargetNodeId),
-    receive
-        {udp, Socket, Ip, Port, Response} ->
-            ok = erline_dht_helper:socket_passive(Socket),
-            case parse_krpc_response(Response, [{find_node, TransactionId}]) of
-                {ok, find_node, Nodes, _NewActiveTx} ->
-                    {ok, Nodes};
-                {error, Reason} ->
-                    {error, Reason}
-            end
-    after ?RECEIVE_TIMEOUT ->
-        {error, no_result}
-    end.
+    ok = socket_send(Socket, Ip, Port, Payload).
 
 
 %%  @doc
@@ -237,24 +201,33 @@ parse_krpc_response(Response, ActiveTx) ->
         {ok, {dict, ResponseDict}} ->
             case dict:find(<<"t">>, ResponseDict) of
                 {ok, TransactionId} ->
-                    case lists:keysearch(TransactionId, 2, ActiveTx) of
-                        {value, {ReqType, TransactionId}} ->
-                            case dict:find(<<"y">>, ResponseDict) of
-                                {ok, <<"r">>} ->
-                                    {ok, {dict, R}} = dict:find(<<"r">>, ResponseDict),
-                                    NewActiveTx = ActiveTx -- [{ReqType, TransactionId}],
-                                    {ok, ReqType, ParseResponseFun(ReqType, R), NewActiveTx};
-                                {ok, <<"e">>} ->
-                                    % Example: {ok,{list,[202,<<"Server Error">>]}
-                                    {ok, {list, E}} = dict:find(<<"e">>, ResponseDict),
-                                    {error, {krpc_error, E}};
-                                {ok, <<"q">>} ->
-                                    % @todo implement
-                                    io:format("Got query~n"),
-                                    {error, not_implemented}
+                    case dict:find(<<"y">>, ResponseDict) of
+                        % Got query from node
+                        {ok, <<"q">>} ->
+                            case {dict:find(<<"q">>, ResponseDict), dict:find(<<"a">>, ResponseDict)} of
+                                {{ok, <<"ping">>}, {ok, {dict, Args}}} ->
+                                    {ok, Hash} = dict:find(<<"id">>, Args),
+                                    {ok, ping, q, Hash, TransactionId};
+                                _ ->
+                                    {error, {bad_query, ResponseDict}}
                             end;
-                        false ->
-                            {error, {non_existing_transaction, TransactionId}}
+                        % Got response from node
+                        {ok, OtherY} ->
+                            case lists:keysearch(TransactionId, 2, ActiveTx) of
+                                {value, {ReqType, TransactionId}} ->
+                                    case OtherY of
+                                        <<"r">> ->
+                                            {ok, {dict, R}} = dict:find(<<"r">>, ResponseDict),
+                                            NewActiveTx = ActiveTx -- [{ReqType, TransactionId}],
+                                            {ok, ReqType, r, ParseResponseFun(ReqType, R), NewActiveTx};
+                                        <<"e">> ->
+                                            % Example: {ok,{list,[202,<<"Server Error">>]}
+                                            {ok, {list, E}} = dict:find(<<"e">>, ResponseDict),
+                                            {error, {krpc_error, E}}
+                                    end;
+                                false ->
+                                    {error, {non_existing_transaction, TransactionId}}
+                            end
                     end;
                 error ->
                      {error, {bad_response, ResponseDict}}
@@ -301,5 +274,17 @@ krpc_request(TransactionId, Type = <<"e">>, Error = [_Code, _Description]) ->
     Req1 = dict:store(<<"y">>, Type, Req0),
     Req2 = dict:store(<<"e">>, {list, Error}, Req1),
     {dict, Req2}.
+
+
+%%
+%%
+%%
+socket_send(Socket, Ip, Port, Payload) ->
+    case gen_udp:send(Socket, Ip, Port, Payload) of
+        ok              -> ok;
+        {error, einval} -> ok; % Ip or port can be malformed
+        {error, eagain} -> ok  % @todo ???
+    end.
+
 
 

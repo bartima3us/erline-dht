@@ -102,8 +102,8 @@ add_node(Ip, Port) ->
 %%
 %%
 %%
-add_node(Ip, Port, PotentialHash) ->
-    gen_server:cast(?SERVER, {add_node, Ip, Port, PotentialHash}).
+add_node(Ip, Port, Hash) ->
+    gen_server:cast(?SERVER, {add_node, Ip, Port, Hash}).
 
 
 %%
@@ -251,7 +251,16 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
     NewState = case get_bucket_and_node(Ip, Port, State) of
         {ok, Bucket, #node{active_transactions = ActiveTx}} ->
             case erline_dht_message:parse_krpc_response(Response, ActiveTx) of
-                {ok, ping, NewNodeHash, NewActiveTx} ->
+                %
+                % Handle ping query
+                {ok, ping, q, NodeHash, GotTxId} ->
+                    ok = erline_dht_message:respond_ping(Ip, Port, Socket, MyNodeHash, GotTxId),
+                    ok = add_node(Ip, Port, NodeHash),
+                    io:format("Got ping query from {~p, ~p}, tx=~p!~n", [Ip, Port, GotTxId]),
+                    State;
+                %
+                % Handle ping response
+                {ok, ping, r, NewNodeHash, NewActiveTx} ->
                     case erline_dht_helper:get_distance(MyNodeHash, NewNodeHash) of
                         {ok, NewDist} ->
                             Params = [
@@ -295,7 +304,9 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                             ],
                             update_node(Ip, Port, Params, State)
                     end;
-                {ok, find_node, Nodes, NewActiveTx} ->
+                %
+                % Handle find_node response
+                {ok, find_node, r, Nodes, NewActiveTx} ->
                     ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
                         % Can't assume that node we got is live so we need to ping it.
                         ok = add_node(FoundIp, FoundPort, FoundedHash)
@@ -306,14 +317,15 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                         {active_transactions, NewActiveTx}
                     ],
                     update_node(Ip, Port, Params, State);
+                %
+                % Handle errors
                 {error, {krpc_error, Reason}} ->
                     io:format("krpc_error=~p~n", [Reason]),
                     State;
                 {error, {non_existing_transaction, TxId}} ->
                     io:format("non_existing_transaction=~p | ~p~n", [{Ip, Port}, TxId]),
                     State;
-                {error, not_implemented} ->
-                    % @todo temporary. Remove later.
+                {error, {bad_query, _BadQuery}} ->
                     State;
                 {error, {bad_response, BadResponse}} ->
                     io:format("BadResponse=~p~n", [BadResponse]),
@@ -352,6 +364,7 @@ handle_info({bucket_check, Distance}, State = #state{buckets = CurrBuckets}) ->
         0 ->
             NewState1;
         _ ->
+            % @todo optimize
             lists:foldl(fun (#node{ip_port = {Ip, Port}}, CurrAccState) ->
                 {ok, NewAccState} = do_ping_async(Ip, Port, CurrAccState),
                 NewAccState
