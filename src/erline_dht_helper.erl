@@ -42,8 +42,8 @@ socket_passive(Socket) ->
 
 
 %%  @doc
-%%  Get distance (in integer) between two 20 bytes length hashes.
-%%  1 is further than 160, but 0 is the nearest (1,2,...,160,0)!
+%%  Get distance (in integer) between two same length hashes.
+%%  1 is the farthest, 160 is the nearest.
 %%
 get_distance(Hash, NodeHash) when
     is_binary(Hash),
@@ -53,7 +53,7 @@ get_distance(Hash, NodeHash) when
     {error, {different_hash_length, Hash, NodeHash}};
 
 get_distance(Hash, NodeHash) when is_binary(Hash), is_binary(NodeHash), Hash =:= NodeHash ->
-    {ok, 0};
+    {ok, erlang:bit_size(Hash)};
 
 get_distance(Hash, NodeHash) when is_binary(Hash), is_binary(NodeHash) ->
     get_distance(Hash, NodeHash, 0);

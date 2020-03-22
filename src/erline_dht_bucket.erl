@@ -153,7 +153,7 @@ init([K, MyNodeHash]) ->
             distance    = Distance
         },
         [NewBucket | AccBuckets]
-    end, [], lists:seq(1, 160)), % @todo from zero?
+    end, [], lists:seq(1, erlang:bit_size(MyNodeHash))),
     ets:new(?NOT_ASSIGNED_NODES_TABLE, [set, named_table, {keypos, #node.ip_port}]),
     NewState = #state{
         socket       = Socket,
