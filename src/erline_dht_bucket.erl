@@ -153,7 +153,7 @@ init([K, MyNodeHash]) ->
             distance    = Distance
         },
         [NewBucket | AccBuckets]
-    end, [], lists:seq(0, 160)), % @todo from zero?
+    end, [], lists:seq(1, 160)), % @todo from zero?
     ets:new(?NOT_ASSIGNED_NODES_TABLE, [set, named_table, {keypos, #node.ip_port}]),
     NewState = #state{
         socket       = Socket,
@@ -301,13 +301,13 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                                     {ok, NewState1} = do_find_node_async(Ip, Port, MyNodeHash, NewState0),
                                     io:format("New node=~p, NewDist=~p~n", [{Ip, Port}, NewDist]),
                                     case maybe_clear_bucket(NewDist, NewState1) of
-                                        {ok, NewState2} ->
+                                        {true, NewState2} ->
                                             update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState2);
                                         % No place in the bucket. Add to buffer
                                         % @todo implement add to buffer
-                                        false ->
+                                        {false, NewState2} ->
                                             io:format("Not enough space in the bucket=~p~n", [NewDist]),
-                                            update_node(Ip, Port, Params, NewState1)
+                                            update_node(Ip, Port, Params, NewState2)
                                     end
                             end;
                         {error, _Reason} ->
@@ -332,6 +332,11 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                         {active_transactions, NewActiveTx}
                     ],
                     update_node(Ip, Port, Params, State);
+                %
+                % Handle announce_peer query
+                {ok, announce_peer, q, _Data, GotTxId} ->
+                    io:format("XXXXXXXXXXXXX Got announce_peer query from {~p, ~p}, tx=~p!~n", [Ip, Port, GotTxId]),
+                    State;
                 %
                 % Handle errors
                 {error, {krpc_error, Reason}} ->
@@ -655,13 +660,13 @@ schedule_bucket_ping(Distance) ->
 -spec maybe_clear_bucket(
     Distance :: distance(),
     State    :: #state{}
-) -> {ok, State :: #state{}} | false.
+) -> {boolean(), State :: #state{}}.
 
 maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
     {value, #bucket{nodes = Nodes}} = lists:keysearch(Distance, #bucket.distance, Buckets),
     case erlang:length(Nodes) < K of
         true  ->
-            {ok, State};
+            {true, State};
         false ->
             {_NotRemovable, Removable} = lists:partition(fun
                 (#node{status = active})     -> true;
@@ -670,17 +675,20 @@ maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
             end, Nodes),
             case Removable of
                 [] ->
-                    false;
+                    {false, State};
                 [_|_] ->
                     % Find and remove node with oldest last_changed datetime
-                    [Removed = #node{ip_port = {Ip, Port}} | _] = lists:sort(
+                    [#node{ip_port = {Ip, Port}} | _] = lists:sort(
                         fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
                             LastChanged1 =< LastChanged2
                         end,
                         Removable
                     ),
-                    io:format("REMOVED NODE=~p~n", [Removed]),
-                    {ok, update_node(Ip, Port, [unassign], State)}
+                    NewState = update_node(Ip, Port, [unassign], State),
+                    % Check once again
+                    #state{buckets = NewBuckets} = NewState,
+                    {value, #bucket{nodes = NewNodes}} = lists:keysearch(Distance, #bucket.distance, NewBuckets),
+                    {(erlang:length(NewNodes) < K), NewState}
             end
     end.
 

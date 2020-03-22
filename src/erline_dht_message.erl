@@ -208,6 +208,9 @@ parse_krpc_response(Response, ActiveTx) ->
                                 {{ok, <<"ping">>}, {ok, {dict, Args}}} ->
                                     {ok, Hash} = dict:find(<<"id">>, Args),
                                     {ok, ping, q, Hash, TransactionId};
+                                % @todo implement requests handling
+                                {{ok, <<"announce_peer">>}, {ok, {dict, Args}}} ->
+                                    {ok, announce_peer, q, <<>>, TransactionId};
                                 _ ->
                                     {error, {bad_query, ResponseDict}}
                             end;
