@@ -18,6 +18,7 @@
     add_node/3,
     get_all_nodes_in_bucket/1,
     get_not_assigned_nodes/0,
+    get_not_assigned_nodes/1,
     get_buckets_filling/0
 ]).
 
@@ -118,7 +119,14 @@ get_all_nodes_in_bucket(Distance) ->
 %%
 %%
 get_not_assigned_nodes() ->
-    gen_server:call(?SERVER, get_not_assigned_nodes).
+    gen_server:call(?SERVER, {get_not_assigned_nodes, undefined}).
+
+
+%%
+%%
+%%
+get_not_assigned_nodes(Distance) ->
+    gen_server:call(?SERVER, {get_not_assigned_nodes, Distance}).
 
 
 %%
@@ -193,14 +201,19 @@ handle_call({get_all_nodes_in_bucket, Distance}, _From, State = #state{buckets =
     end,
     {reply, Response, State};
 
-handle_call(get_not_assigned_nodes, _From, State = #state{}) ->
-    Response = lists:map(fun (Node) ->
+handle_call({get_not_assigned_nodes, Distance}, _From, State = #state{}) ->
+    Response = lists:filtermap(fun (Node) ->
         #node{
             ip_port         = {Ip, Port},
             hash            = Hash,
-            last_changed    = LastChanged
+            last_changed    = LastChanged,
+            distance        = NodeDist
         } = Node,
-        #{ip => Ip, port => Port, hash => Hash, last_changed => LastChanged}
+        Response = #{ip => Ip, port => Port, hash => Hash, last_changed => LastChanged, distance => NodeDist},
+        case Distance =:= undefined orelse NodeDist =:= Distance of
+            true  -> {true, Response};
+            false -> false
+        end
     end, ets:match_object(?NOT_ASSIGNED_NODES_TABLE, #node{_ = '_'})),
     {reply, Response, State};
 
@@ -221,30 +234,23 @@ handle_call(_Request, _From, State) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_cast({add_node, Ip, Port, Hash}, State = #state{my_node_hash = MyNodeHash}) ->
-    NewState = case maybe_buckets_full(State) of
+    NewState = case get_bucket_and_node(Ip, Port, State) of
         false ->
-            case get_bucket_and_node(Ip, Port, State) of
-                false ->
-                    Distance = case Hash of
-                        undefined ->
-                            undefined;
-                        Hash ->
-                            case erline_dht_helper:get_distance(MyNodeHash, Hash) of
-                                {ok, Dist}       -> Dist;
-                                {error, _Reason} -> undefined
-                            end
-                    end,
-                    NewNode = #node{ip_port = {Ip, Port}, hash = Hash, distance = Distance},
-                    true = ets:insert(?NOT_ASSIGNED_NODES_TABLE, NewNode),
-                    {ok, NewState0} = do_ping_async(Ip, Port, State),
-                    NewState0;
-                {ok, _Bucket, #node{}} ->
-                    State % @todo fire event: {error, already_added}
-            end;
-        true ->
-            io:format("Buckets are full~n"),
-            % @todo fire event: {error, buckets_are_full}
-            State
+            Distance = case Hash of
+                undefined ->
+                    undefined;
+                Hash ->
+                    case erline_dht_helper:get_distance(MyNodeHash, Hash) of
+                        {ok, Dist}       -> Dist;
+                        {error, _Reason} -> undefined
+                    end
+            end,
+            NewNode = #node{ip_port = {Ip, Port}, hash = Hash, distance = Distance},
+            true = ets:insert(?NOT_ASSIGNED_NODES_TABLE, NewNode),
+            {ok, NewState0} = do_ping_async(Ip, Port, State),
+            NewState0;
+        {ok, _Bucket, #node{}} ->
+            State % @todo fire event: {error, already_added}
     end,
     {noreply, NewState};
 
@@ -291,9 +297,12 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                                             io:format("Dist is the same. Dist=~p~n", [CurrDist]),
                                             update_node(Ip, Port, Params ++ [{active_transactions, NewActiveTx}], State);
                                          % If hash is changed, move node to another bucket
-                                        false ->
+                                        false -> % todo: maybe_clear_bucket
                                             io:format("Dist is changed. Dist=~p~n", [NewDist]),
-                                            update_node(Ip, Port, Params ++ [{assign, NewDist}, {active_transactions, NewActiveTx}], State)
+                                            case maybe_clear_bucket(NewDist, State) of
+                                                {true, NewState0}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}, {active_transactions, NewActiveTx}], NewState0);
+                                                {false, NewState0} -> update_node(Ip, Port, Params ++ [unasign, {active_transactions, NewActiveTx}], NewState0)
+                                            end
                                     end;
                                 % New node
                                 false ->
@@ -301,13 +310,9 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                                     {ok, NewState1} = do_find_node_async(Ip, Port, MyNodeHash, NewState0),
                                     io:format("New node=~p, NewDist=~p~n", [{Ip, Port}, NewDist]),
                                     case maybe_clear_bucket(NewDist, NewState1) of
-                                        {true, NewState2} ->
-                                            update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState2);
+                                        {true, NewState2}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState2);
                                         % No place in the bucket. Add to buffer
-                                        % @todo implement add to buffer
-                                        {false, NewState2} ->
-                                            io:format("Not enough space in the bucket=~p~n", [NewDist]),
-                                            update_node(Ip, Port, Params, NewState2)
+                                        {false, NewState2} -> update_node(Ip, Port, Params, NewState2) % @todo implement add to buffer
                                     end
                             end;
                         {error, _Reason} ->
