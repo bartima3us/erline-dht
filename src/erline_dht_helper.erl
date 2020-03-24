@@ -15,6 +15,7 @@
     socket_active_once/1,
     socket_passive/1,
     get_distance/2,
+    get_hash_of_distance/2,
     parse_compact_node_info/1,
     datetime_diff/2
 ]).
@@ -53,19 +54,19 @@ get_distance(Hash, NodeHash) when
     {error, {different_hash_length, Hash, NodeHash}};
 
 get_distance(Hash, NodeHash) when is_binary(Hash), is_binary(NodeHash), Hash =:= NodeHash ->
-    {ok, erlang:bit_size(Hash)};
+    {ok, 0};
 
 get_distance(Hash, NodeHash) when is_binary(Hash), is_binary(NodeHash) ->
-    get_distance(Hash, NodeHash, 0);
+    {ok, 161 - get_distance(Hash, NodeHash, 0)};
 
 get_distance(Hash, NodeHash) ->
     {error, {malformed_hashes, Hash, NodeHash}}.
 
-get_distance(<<Hash:1/bytes, HashRest/binary>>, <<NodeHash:1/bytes, NodeHashRest/binary>>, Result) when
+get_distance(<<Hash:1/binary, HashRest/binary>>, <<NodeHash:1/binary, NodeHashRest/binary>>, Result) when
     Hash =:= NodeHash ->
     get_distance(HashRest, NodeHashRest, Result + 1);
 
-get_distance(<<Hash:1/bytes, _HashRest/binary>>, <<NodeHash:1/bytes, _NodeHashRest/binary>>, Result) when
+get_distance(<<Hash:1/binary, _HashRest/binary>>, <<NodeHash:1/binary, _NodeHashRest/binary>>, Result) when
     Hash =/= NodeHash
     ->
     <<HashInt:8>> = Hash,
@@ -79,7 +80,25 @@ get_distance(<<Hash:1/bytes, _HashRest/binary>>, <<NodeHash:1/bytes, _NodeHashRe
         (_Shift, Res) ->
             Res
     end, 0, lists:seq(0, 8)),
-    {ok, Result * 8 + DiffBitPosition}.
+    Result * 8 + DiffBitPosition.
+
+
+%%  @doc
+%%  Get a new hash of the specified distance by the specified hash.
+%%
+get_hash_of_distance(Hash, _Distance) when not is_binary(Hash) ->
+    {error, {malformed_hash, Hash}};
+
+get_hash_of_distance(Hash, _Distance) when bit_size(Hash) < 160 ->
+    {error, {hash_too_short, Hash}};
+
+get_hash_of_distance(Hash, Distance) ->
+    SamePartSize = Distance - 1,
+    <<SamePart:SamePartSize/bits, ImportantBit:1/bits, Rest/bits>> = Hash,
+    <<ImportantBitInt:1/integer>> = ImportantBit,
+    DiffBitInt = erlang:abs(ImportantBitInt - 1),
+    DiffBit = <<DiffBitInt:1>>,
+    {ok, <<SamePart/bits, DiffBit/bits, Rest/bits>>}.
 
 
 %%

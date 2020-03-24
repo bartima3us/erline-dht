@@ -161,7 +161,7 @@ init([K, MyNodeHash]) ->
             distance    = Distance
         },
         [NewBucket | AccBuckets]
-    end, [], lists:seq(1, erlang:bit_size(MyNodeHash))),
+    end, [], lists:seq(0, erlang:bit_size(MyNodeHash))),
     ets:new(?NOT_ASSIGNED_NODES_TABLE, [set, named_table, {keypos, #node.ip_port}]),
     NewState = #state{
         socket       = Socket,
@@ -240,6 +240,7 @@ handle_cast({add_node, Ip, Port, Hash}, State = #state{my_node_hash = MyNodeHash
                 undefined ->
                     undefined;
                 Hash ->
+                    % @todo check if not over K * 100 nodes for Distance. Otherwise drop.
                     case erline_dht_helper:get_distance(MyNodeHash, Hash) of
                         {ok, Dist}       -> Dist;
                         {error, _Reason} -> undefined
@@ -301,14 +302,15 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                                             io:format("Dist is changed. Dist=~p~n", [NewDist]),
                                             case maybe_clear_bucket(NewDist, State) of
                                                 {true, NewState0}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}, {active_transactions, NewActiveTx}], NewState0);
-                                                {false, NewState0} -> update_node(Ip, Port, Params ++ [unasign, {active_transactions, NewActiveTx}], NewState0)
+                                                {false, NewState0} -> update_node(Ip, Port, Params ++ [unassign, {active_transactions, NewActiveTx}], NewState0)
                                             end
                                     end;
                                 % New node
                                 false ->
                                     NewState0 = update_node(Ip, Port, [{active_transactions, NewActiveTx}], State),
+%%                                    {ok, TargetHash} = erline_dht_helper:get_hash_of_distance(MyNodeHash, crypto:rand_uniform(1, erlang:bit_size(MyNodeHash))),
                                     {ok, NewState1} = do_find_node_async(Ip, Port, MyNodeHash, NewState0),
-                                    io:format("New node=~p, NewDist=~p~n", [{Ip, Port}, NewDist]),
+                                    io:format("New node=~p, Hash=~p, NewDist=~p~n", [{Ip, Port}, NewNodeHash, NewDist]),
                                     case maybe_clear_bucket(NewDist, NewState1) of
                                         {true, NewState2}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState2);
                                         % No place in the bucket. Add to buffer
@@ -331,7 +333,6 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                         % Can't assume that node we got is live so we need to ping it.
                         ok = add_node(FoundIp, FoundPort, FoundedHash)
                     end, Nodes),
-                    io:format("Find node resp. NewActiveTx=~p, IP=~p~n", [NewActiveTx, {Ip, Port}]),
                     Params = [
                         {last_changed,        calendar:local_time()},
                         {active_transactions, NewActiveTx}
