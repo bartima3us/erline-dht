@@ -358,8 +358,8 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                     State
             end;
         false ->
-            % @todo add to bucket
-            io:format("Node not found=~p~n", [{Ip, Port}]),
+            % @todo handle request
+            ok = add_node(Ip, Port),
             State
     end,
     {noreply, NewState};
