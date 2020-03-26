@@ -16,6 +16,7 @@
     start_link/2,
     add_node/2,
     add_node/3,
+    get_peers/1,
     get_all_nodes_in_bucket/1,
     get_not_assigned_nodes/0,
     get_not_assigned_nodes/1,
@@ -106,6 +107,13 @@ add_node(Ip, Port) ->
 %%
 add_node(Ip, Port, Hash) ->
     gen_server:cast(?SERVER, {add_node, Ip, Port, Hash}).
+
+
+%%
+%%
+%%
+get_peers(InfoHash) ->
+    gen_server:cast(?SERVER, {get_peers, InfoHash}).
 
 
 %%
@@ -255,6 +263,20 @@ handle_cast({add_node, Ip, Port, Hash}, State = #state{my_node_hash = MyNodeHash
     end,
     {noreply, NewState};
 
+%
+%
+handle_cast({get_peers, InfoHash}, State = #state{buckets = Buckets}) ->
+    AllNodes = lists:foldl(fun (#bucket{nodes = Nodes}, NodesAcc) ->
+        NodesAcc ++ Nodes
+    end, [], Buckets),
+    NewState = lists:foldl(fun (#node{ip_port = {Ip, Port}}, AccState) ->
+        {ok, NewState0} = do_get_peers_async(Ip, Port, InfoHash, AccState),
+        NewState0
+    end, State, AllNodes),
+    {noreply, NewState};
+
+%
+%
 handle_cast(_Request, State) ->
     {noreply, State}.
 
@@ -277,7 +299,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                 {ok, ping, q, NodeHash, GotTxId} ->
                     ok = erline_dht_message:respond_ping(Ip, Port, Socket, MyNodeHash, GotTxId),
                     ok = add_node(Ip, Port, NodeHash),
-                    io:format("Got ping query from {~p, ~p}, tx=~p!~n", [Ip, Port, GotTxId]),
+%%                    io:format("Got ping query from {~p, ~p}, tx=~p!~n", [Ip, Port, GotTxId]),
                     State;
                 %
                 % Handle ping response
@@ -295,11 +317,11 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                                     case CurrDist =:= NewDist of
                                         % If hash is the same, update node data
                                         true ->
-                                            io:format("Dist is the same. Dist=~p~n", [CurrDist]),
+%%                                            io:format("Dist is the same. Dist=~p~n", [CurrDist]),
                                             update_node(Ip, Port, Params ++ [{active_transactions, NewActiveTx}], State);
                                          % If hash is changed, move node to another bucket
                                         false -> % todo: maybe_clear_bucket
-                                            io:format("Dist is changed. Dist=~p~n", [NewDist]),
+%%                                            io:format("Dist is changed. Dist=~p~n", [NewDist]),
                                             case maybe_clear_bucket(NewDist, State) of
                                                 {true, NewState0}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}, {active_transactions, NewActiveTx}], NewState0);
                                                 {false, NewState0} -> update_node(Ip, Port, Params ++ [unassign, {active_transactions, NewActiveTx}], NewState0)
@@ -310,7 +332,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                                     NewState0 = update_node(Ip, Port, [{active_transactions, NewActiveTx}], State),
 %%                                    {ok, TargetHash} = erline_dht_helper:get_hash_of_distance(MyNodeHash, crypto:rand_uniform(1, erlang:bit_size(MyNodeHash))),
                                     {ok, NewState1} = do_find_node_async(Ip, Port, MyNodeHash, NewState0),
-                                    io:format("New node=~p, Hash=~p, NewDist=~p~n", [{Ip, Port}, NewNodeHash, NewDist]),
+%%                                    io:format("New node=~p, Hash=~p, NewDist=~p~n", [{Ip, Port}, NewNodeHash, NewDist]),
                                     case maybe_clear_bucket(NewDist, NewState1) of
                                         {true, NewState2}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState2);
                                         % No place in the bucket. Add to buffer
@@ -339,22 +361,31 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                     ],
                     update_node(Ip, Port, Params, State);
                 %
+                % Handle get_peers response
+                {ok, get_peers, r, Nodes, NewActiveTx} ->
+                    % @todo implement
+                    Params = [
+                        {last_changed,        calendar:local_time()},
+                        {active_transactions, NewActiveTx}
+                    ],
+                    update_node(Ip, Port, Params, State);
+                %
                 % Handle announce_peer query
                 {ok, announce_peer, q, _Data, GotTxId} ->
-                    io:format("XXXXXXXXXXXXX Got announce_peer query from {~p, ~p}, tx=~p!~n", [Ip, Port, GotTxId]),
+%%                    io:format("XXXXXXXXXXXXX Got announce_peer query from {~p, ~p}, tx=~p!~n", [Ip, Port, GotTxId]),
                     State;
                 %
                 % Handle errors
                 {error, {krpc_error, Reason}} ->
-                    io:format("krpc_error=~p~n", [Reason]),
+%%                    io:format("krpc_error=~p~n", [Reason]),
                     State;
                 {error, {non_existing_transaction, TxId}} ->
-                    io:format("non_existing_transaction=~p | ~p~n", [{Ip, Port}, TxId]),
+%%                    io:format("non_existing_transaction=~p | ~p~n", [{Ip, Port}, TxId]),
                     State;
                 {error, {bad_query, _BadQuery}} ->
                     State;
                 {error, {bad_response, BadResponse}} ->
-                    io:format("BadResponse=~p~n", [BadResponse]),
+%%                    io:format("BadResponse=~p~n", [BadResponse]),
                     State
             end;
         false ->
@@ -372,13 +403,13 @@ handle_info({bucket_check, Distance}, State = #state{buckets = CurrBuckets}) ->
         #node{ip_port = {Ip, Port}, last_changed = LastChanged, status = Status} = Node,
         case erline_dht_helper:datetime_diff(calendar:local_time(), LastChanged) of
             SecondsTillLastChanged when SecondsTillLastChanged > ?ACTIVE_TTL, Status =:= active ->
-                io:format("Node {~p, ~p} in bucket ~p became suspicious.~n", [Ip, Port, Distance]),
+%%                io:format("Node {~p, ~p} in bucket ~p became suspicious.~n", [Ip, Port, Distance]),
                 CurrAccState0 = update_node(Ip, Port, [{status, suspicious}], CurrAccState),
                 % Try to ping once again
                 {ok, NewAccState} = do_ping_async(Ip, Port, CurrAccState0),
                 {NewAccState, BecomeNotActiveAcc};
             SecondsTillLastChanged when SecondsTillLastChanged > ?SUSPICIOUS_TTL, Status =:= suspicious ->
-                io:format("Node {~p, ~p} in bucket ~p became not_active.~n", [Ip, Port, Distance]),
+%%                io:format("Node {~p, ~p} in bucket ~p became not_active.~n", [Ip, Port, Distance]),
                 {update_node(Ip, Port, [{status, not_active}], CurrAccState), BecomeNotActiveAcc + 1};
             _SecondsTillLastChanged ->
                 {CurrAccState, BecomeNotActiveAcc}
@@ -401,7 +432,7 @@ handle_info({bucket_check, Distance}, State = #state{buckets = CurrBuckets}) ->
 %
 %
 handle_info({bucket_ping, Distance}, State = #state{buckets = Buckets}) ->
-    io:format("Bucket (~p) ping.~n", [Distance]),
+%%    io:format("Bucket (~p) ping.~n", [Distance]),
     {value, #bucket{nodes = Nodes}} = lists:keysearch(Distance, #bucket.distance, Buckets),
     NewState0 = lists:foldl(fun (#node{ip_port = {Ip, Port}}, CurrAccState) ->
         {ok, NewAccState} = do_ping_async(Ip, Port, CurrAccState),
@@ -481,6 +512,29 @@ do_find_node_async(Ip, Port, Target, State = #state{socket = Socket, my_node_has
     NewState = update_node(Ip, Port, Params, State),
     ok = erline_dht_helper:socket_active(Socket),
     ok = erline_dht_message:send_find_node(Ip, Port, Socket, MyNodeHash, TxId, Target),
+    {ok, NewState}.
+
+
+%%
+%%
+%%
+-spec do_get_peers_async(
+    Ip       :: inet:ip_address(),
+    Port     :: inet:port_number(),
+    InfoHash :: binary(),
+    State    :: #state{}
+) -> {ok, State :: #state{}}.
+
+do_get_peers_async(Ip, Port, InfoHash, State = #state{my_node_hash = MyNodeHash, socket = Socket, buckets = Buckets}) ->
+    {ok, _Bucket, Node} = get_bucket_and_node(Ip, Port, State),
+    #node{transaction_id = TxId, active_transactions = CurrActiveTx} = Node,
+    Params = [
+        transaction_id,
+        {active_transactions, [{get_peers, TxId} | CurrActiveTx]}
+    ],
+    NewState = update_node(Ip, Port, Params, State),
+    ok = erline_dht_helper:socket_active(Socket),
+    ok = erline_dht_message:send_get_peers(Ip, Port, Socket, MyNodeHash, TxId, InfoHash),
     {ok, NewState}.
 
 
@@ -711,4 +765,21 @@ maybe_buckets_full([], _) -> true;
 maybe_buckets_full([#bucket{nodes = Nodes} | _], K) when length(Nodes) /= K -> false;
 maybe_buckets_full([_ | Buckets], K) -> maybe_buckets_full(Buckets, K).
 
+
+%%
+%%
+%%
+find_node_by_info_hash(_InfoHash, _State) ->
+    ok.
+
+%%
+%%
+%%
+find_n_closest_nodes(Hash, N, State = #state{buckets = Buckets}) ->
+    find_n_closest_nodes(Hash, N, Buckets, []).
+
+find_n_closest_nodes(_Hash, N, Buckets, Result) when N =:= 0; Buckets =:= [] ->
+    Result.
+
+%%find_n_closest_nodes(Hash, N, Buckets, Result)
 

@@ -13,6 +13,7 @@
     send_ping/5,
     respond_ping/5,
     send_find_node/6,
+    send_get_peers/6,
     ping_request/2,
     ping_response/2,
     find_node_request/3,
@@ -55,6 +56,14 @@ respond_ping(Ip, Port, Socket, MyNodeId, TransactionId) ->
 %%
 send_find_node(Ip, Port, Socket, MyNodeId, TransactionId, TargetNodeId) ->
     Payload = find_node_request(TransactionId, MyNodeId, TargetNodeId),
+    ok = socket_send(Socket, Ip, Port, Payload).
+
+
+%%
+%%
+%%
+send_get_peers(Ip, Port, Socket, MyNodeId, TransactionId, InfoHash) ->
+    Payload = get_peers_request(TransactionId, MyNodeId, InfoHash),
     ok = socket_send(Socket, Ip, Port, Payload).
 
 
@@ -193,9 +202,11 @@ parse_krpc_response(Response, ActiveTx) ->
                 {ok, CompactNodeInfo} ->
                     erline_dht_helper:parse_compact_node_info(CompactNodeInfo);
                 error ->
-                    io:format("xxxxxx something went wrong1=~p~n", [Resp]),
                     []
-            end
+            end;
+       (get_peers, Resp) ->
+            io:format("xxxxxxxxx get_peers resp = ~p~n", [Resp]),
+            []
     end,
     case erline_dht_bencoding:decode(Response) of
         {ok, {dict, ResponseDict}} ->
@@ -222,6 +233,7 @@ parse_krpc_response(Response, ActiveTx) ->
                                         <<"r">> ->
                                             {ok, {dict, R}} = dict:find(<<"r">>, ResponseDict),
                                             NewActiveTx = ActiveTx -- [{ReqType, TransactionId}],
+                                            % @todo parse response not by ReqType but by actual response message
                                             {ok, ReqType, r, ParseResponseFun(ReqType, R), NewActiveTx};
                                         <<"e">> -> % @todo update tx ids?
                                             % Example: {ok,{list,[202,<<"Server Error">>]}

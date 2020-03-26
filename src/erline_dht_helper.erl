@@ -24,21 +24,21 @@
 %%  @doc
 %%  Turn socket to active mode.
 %%
-socket_active(Socket) ->
+socket_active(Socket) -> % @todo remove?
     inet:setopts(Socket, [{active, true}]).
 
 
 %%  @doc
 %%  Turn socket to active once mode.
 %%
-socket_active_once(Socket) ->
+socket_active_once(Socket) -> % @todo remove?
     inet:setopts(Socket, [{active, once}]).
 
 
 %%  @doc
 %%  Turn socket to passive mode.
 %%
-socket_passive(Socket) ->
+socket_passive(Socket) -> % @todo remove?
     inet:setopts(Socket, [{active, false}]).
 
 
