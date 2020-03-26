@@ -194,19 +194,30 @@ error_response(TransactionId, ErrorCode, ErrorDescription) when
 %%
 parse_krpc_response(Response, ActiveTx) ->
     ParseResponseFun = fun
-        (ping, Resp) ->
+        (ping, _TransactionId, Resp) ->
             {ok, NodeHash} = dict:find(<<"id">>, Resp),
             NodeHash;
-        (find_node, Resp) ->
+        (find_node, _TransactionId, Resp) ->
             case dict:find(<<"nodes">>, Resp) of
                 {ok, CompactNodeInfo} ->
                     erline_dht_helper:parse_compact_node_info(CompactNodeInfo);
                 error ->
                     []
             end;
-       (get_peers, Resp) ->
-            io:format("xxxxxxxxx get_peers resp = ~p~n", [Resp]),
-            []
+       (get_peers, TransactionId, Resp) ->
+            case dict:find(<<"values">>, Resp) of
+                {ok, CompactValuesInfo} ->
+                    io:format("xxxxxxxx VALUES ~p~n!!!!", [CompactValuesInfo]),
+                    {TransactionId, []};
+                error ->
+                    case dict:find(<<"nodes">>, Resp) of
+                        {ok, CompactNodeInfo} ->
+                            ParsedCompactNodeInfo = erline_dht_helper:parse_compact_node_info(CompactNodeInfo),
+                            {TransactionId, ParsedCompactNodeInfo};
+                        error ->
+                            {TransactionId, []}
+                    end
+            end
     end,
     case erline_dht_bencoding:decode(Response) of
         {ok, {dict, ResponseDict}} ->
@@ -234,7 +245,7 @@ parse_krpc_response(Response, ActiveTx) ->
                                             {ok, {dict, R}} = dict:find(<<"r">>, ResponseDict),
                                             NewActiveTx = ActiveTx -- [{ReqType, TransactionId}],
                                             % @todo parse response not by ReqType but by actual response message
-                                            {ok, ReqType, r, ParseResponseFun(ReqType, R), NewActiveTx};
+                                            {ok, ReqType, r, ParseResponseFun(ReqType, TransactionId, R), NewActiveTx};
                                         <<"e">> -> % @todo update tx ids?
                                             % Example: {ok,{list,[202,<<"Server Error">>]}
                                             {ok, {list, E}} = dict:find(<<"e">>, ResponseDict),

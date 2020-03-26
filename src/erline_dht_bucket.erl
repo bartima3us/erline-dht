@@ -17,6 +17,7 @@
     add_node/2,
     add_node/3,
     get_peers/1,
+    get_peers/3,
     get_all_nodes_in_bucket/1,
     get_not_assigned_nodes/0,
     get_not_assigned_nodes/1,
@@ -129,7 +130,14 @@ add_node(Ip, Port, Hash) ->
 %%
 %%
 get_peers(InfoHash) ->
-    gen_server:cast(?SERVER, {get_peers, InfoHash}).
+    gen_server:cast(?SERVER, {get_peers, undefined, undefined, InfoHash}).
+
+
+%%
+%%
+%%
+get_peers(Ip, Port, InfoHash) ->
+    gen_server:cast(?SERVER, {get_peers, Ip, Port, InfoHash}).
 
 
 %%
@@ -287,11 +295,17 @@ handle_cast({add_node, Ip, Port, Hash}, State = #state{my_node_hash = MyNodeHash
 
 %
 %
-handle_cast({get_peers, InfoHash}, State = #state{buckets = Buckets}) ->
-    % Flatten all nodes in all buckets
-    AllNodes = lists:foldl(fun (#bucket{nodes = Nodes}, NodesAcc) ->
-        NodesAcc ++ Nodes
-    end, [], Buckets),
+handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{buckets = Buckets}) ->
+    % Flatten all nodes in all buckets or take concrete node
+    NodesForSearch = case Ip of
+        undefined ->
+            lists:foldl(fun (#bucket{nodes = Nodes}, NodesAcc) ->
+                NodesAcc ++ Nodes
+            end, [], Buckets);
+        _ ->
+            {ok, _Bucket, Node} = get_bucket_and_node(Ip, Port, State),
+            [Node]
+    end,
     % Make get_peers requests
     NewState = lists:foldl(fun (#node{ip_port = {Ip, Port}}, AccState) ->
         {ok, TxId, NewState0} = do_get_peers_async(Ip, Port, InfoHash, AccState),
@@ -310,7 +324,7 @@ handle_cast({get_peers, InfoHash}, State = #state{buckets = Buckets}) ->
                 },
                 NewState0#state{get_peers_searches = [NewGetPeersSearch]}
         end
-    end, State, AllNodes),
+    end, State, NodesForSearch),
     {noreply, NewState};
 
 %
@@ -406,12 +420,22 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                     update_node(Ip, Port, Params, State);
                 %
                 % Handle get_peers response
-                {ok, get_peers, r, Nodes, NewActiveTx} ->
+                {ok, get_peers, r, {TxId, Nodes}, NewActiveTx} ->
                     % @todo implement
                     Params = [
                         {last_changed,        calendar:local_time()},
                         {active_transactions, NewActiveTx}
                     ],
+                    InfoHash = find_info_hash_by_tx_and_peer(TxId, Ip, Port, State),
+                    ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
+                        case is_peer_already_requested(InfoHash, FoundIp, FoundPort, State) of
+                            true  ->
+                                ok;
+                            false ->
+                                ok = add_node(FoundIp, FoundPort, FoundedHash),
+                                ok = get_peers(FoundIp, FoundPort, InfoHash)
+                        end
+                    end, Nodes),
                     update_node(Ip, Port, Params, State);
                 %
                 % Handle announce_peer query
@@ -800,30 +824,65 @@ maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
 %%
 %%
 %%
--spec maybe_buckets_full(
-    State    :: #state{}
-) -> boolean().
-
-maybe_buckets_full(#state{k = K, buckets = Buckets}) -> maybe_buckets_full(Buckets, K).
-maybe_buckets_full([], _) -> true;
-maybe_buckets_full([#bucket{nodes = Nodes} | _], K) when length(Nodes) /= K -> false;
-maybe_buckets_full([_ | Buckets], K) -> maybe_buckets_full(Buckets, K).
-
-
+%%-spec maybe_buckets_full(
+%%    State    :: #state{}
+%%) -> boolean().
 %%
-%%
-%%
-find_node_by_info_hash(_InfoHash, _State) ->
-    ok.
+%%maybe_buckets_full(#state{k = K, buckets = Buckets}) -> maybe_buckets_full(Buckets, K).
+%%maybe_buckets_full([], _) -> true;
+%%maybe_buckets_full([#bucket{nodes = Nodes} | _], K) when length(Nodes) /= K -> false;
+%%maybe_buckets_full([_ | Buckets], K) -> maybe_buckets_full(Buckets, K).
+
 
 %%
 %%
 %%
-find_n_closest_nodes(Hash, N, State = #state{buckets = Buckets}) ->
-    find_n_closest_nodes(Hash, N, Buckets, []).
+%%find_node_by_info_hash(_InfoHash, _State) ->
+%%    ok.
 
-find_n_closest_nodes(_Hash, N, Buckets, Result) when N =:= 0; Buckets =:= [] ->
-    Result.
+%%
+%%
+%%
+%%find_n_closest_nodes(Hash, N, State = #state{buckets = Buckets}) ->
+%%    find_n_closest_nodes(Hash, N, Buckets, []).
+%%
+%%find_n_closest_nodes(_Hash, N, Buckets, Result) when N =:= 0; Buckets =:= [] ->
+%%    Result.
 
 %%find_n_closest_nodes(Hash, N, Buckets, Result)
+
+
+%%
+%%
+%%
+find_info_hash_by_tx_and_peer(TxId, Ip, Port, #state{get_peers_searches = GetPeersSearches}) ->
+    find_info_hash_by_tx_and_peer(TxId, Ip, Port, GetPeersSearches);
+
+find_info_hash_by_tx_and_peer(_TxId, _Ip, _Port, []) ->
+    false;
+
+find_info_hash_by_tx_and_peer(TxId, Ip, Port, [GetPeersSearch = #get_peers_search{} | GetPeersSearches]) ->
+    #get_peers_search{info_hash = InfoHash, requested_peers = RequestedPeers} = GetPeersSearch,
+    case find_info_hash_by_tx_and_peer(TxId, Ip, Port, RequestedPeers) of
+        false -> find_info_hash_by_tx_and_peer(TxId, Ip, Port, GetPeersSearches);
+        true  -> InfoHash
+    end;
+
+find_info_hash_by_tx_and_peer(TxId, Ip, Port, [#requested_peer{ip_port = {Ip, Port}, transaction_id = TxId} | _]) ->
+    true;
+
+find_info_hash_by_tx_and_peer(TxId, Ip, Port, [#requested_peer{} | RequestedPeers]) ->
+    find_info_hash_by_tx_and_peer(TxId, Ip, Port, RequestedPeers).
+
+
+%%
+%%
+%%
+is_peer_already_requested(InfoHash, Ip, Port, #state{get_peers_searches = GetPeersSearches}) ->
+    {value, #get_peers_search{requested_peers = RequestedPeers}} = lists:keysearch(InfoHash, #get_peers_search.info_hash, GetPeersSearches),
+    case lists:keysearch({Ip, Port}, #requested_peer.ip_port, RequestedPeers) of
+        {value, _} -> true;
+        false      -> false
+    end.
+
 
