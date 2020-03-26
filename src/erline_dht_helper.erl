@@ -17,6 +17,7 @@
     get_distance/2,
     get_hash_of_distance/2,
     parse_compact_node_info/1,
+    parse_peer_info/1,
     datetime_diff/2
 ]).
 
@@ -115,6 +116,22 @@ parse_compact_node_info(<<Hash:20/binary, Ip:4/binary, Port:2/binary, Rest/binar
     <<Oct1:8, Oct2:8, Oct3:8, Oct4:8>> = Ip,
     Node = #{hash => Hash, ip => {Oct1, Oct2, Oct3, Oct4}, port => PortInt},
     parse_compact_node_info(Rest, [Node | Result]).
+
+
+%%
+%%
+%%
+parse_peer_info(PeerInfoList) ->
+    parse_peer_info(PeerInfoList, []).
+
+parse_peer_info([], Result) ->
+    Result;
+
+parse_peer_info([<<Ip:4/binary, Port:2/binary>> | PeerInfoList], Result) ->
+    <<PortInt:16>> = Port,
+    <<Oct1:8, Oct2:8, Oct3:8, Oct4:8>> = Ip,
+    Peer = #{ip => {Oct1, Oct2, Oct3, Oct4}, port => PortInt},
+    parse_peer_info(PeerInfoList, [Peer | Result]).
 
 
 %%
