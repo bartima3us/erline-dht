@@ -23,6 +23,11 @@
     get_buckets_filling/0
 ]).
 
+% Temp @todo remove
+-export([
+    get_peers_searches/0
+]).
+
 %% gen_server callbacks
 -export([
     init/1,
@@ -64,15 +69,26 @@
     distance            :: distance(),
     check_timer         :: reference(),
     ping_timer          :: reference(),
-    nodes       = []    :: [#node{}],
-    buffer      = []    :: [#node{}]   % @todo implement
+    nodes       = []    :: [#node{}]
+}).
+
+-record(requested_peer, {
+    ip_port         :: {inet:ip_address(), inet:port_number()},
+    transaction_id  :: tx_id()
+}).
+
+-record(get_peers_search, {
+    info_hash               :: binary(),
+    last_changed            :: calendar:datetime(), % @todo implement
+    requested_peers = []    :: [#requested_peer{}]
 }).
 
 -record(state, {
     my_node_hash                :: binary(),
     socket                      :: port(),
     k                           :: pos_integer(),
-    buckets             = []    :: [#bucket{}]
+    buckets             = []    :: [#bucket{}],
+    get_peers_searches  = []    :: [#get_peers_search{}]
 }).
 
 %%%===================================================================
@@ -143,6 +159,12 @@ get_not_assigned_nodes(Distance) ->
 get_buckets_filling() ->
     gen_server:call(?SERVER, get_buckets_filling).
 
+
+%%
+%%
+%%
+get_peers_searches() ->
+    gen_server:cast(?SERVER, get_peers_searches).
 
 
 %%%===================================================================
@@ -266,14 +288,36 @@ handle_cast({add_node, Ip, Port, Hash}, State = #state{my_node_hash = MyNodeHash
 %
 %
 handle_cast({get_peers, InfoHash}, State = #state{buckets = Buckets}) ->
+    % Flatten all nodes in all buckets
     AllNodes = lists:foldl(fun (#bucket{nodes = Nodes}, NodesAcc) ->
         NodesAcc ++ Nodes
     end, [], Buckets),
+    % Make get_peers requests
     NewState = lists:foldl(fun (#node{ip_port = {Ip, Port}}, AccState) ->
-        {ok, NewState0} = do_get_peers_async(Ip, Port, InfoHash, AccState),
-        NewState0
+        {ok, TxId, NewState0} = do_get_peers_async(Ip, Port, InfoHash, AccState),
+        #state{get_peers_searches = CurrGetPeersSearches} = NewState0,
+        RequestedPeer = #requested_peer{ip_port = {Ip, Port}, transaction_id = TxId},
+        case lists:keysearch(InfoHash, #get_peers_search.info_hash, CurrGetPeersSearches) of
+            {value, CurrGetPeersSearch = #get_peers_search{requested_peers = CurrRequestedPeers}} ->
+                NewGetPeersSearch = CurrGetPeersSearch#get_peers_search{requested_peers = [RequestedPeer | CurrRequestedPeers]},
+                NewGetPeersSearches = lists:keyreplace(InfoHash, #get_peers_search.info_hash, CurrGetPeersSearches, NewGetPeersSearch),
+                NewState0#state{get_peers_searches = NewGetPeersSearches};
+            false ->
+                NewGetPeersSearch = #get_peers_search{
+                    info_hash       = InfoHash,
+                    last_changed    = calendar:local_time(),
+                    requested_peers = [RequestedPeer]
+                },
+                NewState0#state{get_peers_searches = [NewGetPeersSearch]}
+        end
     end, State, AllNodes),
     {noreply, NewState};
+
+%
+%
+handle_cast(get_peers_searches, State = #state{get_peers_searches = GetPeersSearches}) ->
+    io:format("xxxxxxxx GetPeersSearches=~p~n", [GetPeersSearches]),
+    {noreply, State};
 
 %
 %
@@ -523,7 +567,7 @@ do_find_node_async(Ip, Port, Target, State = #state{socket = Socket, my_node_has
     Port     :: inet:port_number(),
     InfoHash :: binary(),
     State    :: #state{}
-) -> {ok, State :: #state{}}.
+) -> {ok, TxId :: tx_id(), State :: #state{}}.
 
 do_get_peers_async(Ip, Port, InfoHash, State = #state{my_node_hash = MyNodeHash, socket = Socket, buckets = Buckets}) ->
     {ok, _Bucket, Node} = get_bucket_and_node(Ip, Port, State),
@@ -535,7 +579,7 @@ do_get_peers_async(Ip, Port, InfoHash, State = #state{my_node_hash = MyNodeHash,
     NewState = update_node(Ip, Port, Params, State),
     ok = erline_dht_helper:socket_active(Socket),
     ok = erline_dht_message:send_get_peers(Ip, Port, Socket, MyNodeHash, TxId, InfoHash),
-    {ok, NewState}.
+    {ok, TxId, NewState}.
 
 
 %%%===================================================================
