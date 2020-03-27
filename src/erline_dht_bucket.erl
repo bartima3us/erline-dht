@@ -65,8 +65,7 @@
     transaction_id      = <<0,0>>       :: tx_id(),
     active_transactions = []            :: [{request(), tx_id()}],
     status              = suspicious    :: status(),
-    distance                            :: distance(), % Denormalized field. Mapping: #node.distance = #bucket.distance.
-    info_hashes         = []            :: [binary()]
+    distance                            :: distance() % Denormalized field. Mapping: #node.distance = #bucket.distance.
 }).
 
 -record(bucket, {
@@ -74,6 +73,11 @@
     check_timer         :: reference(),
     ping_timer          :: reference(),
     nodes       = []    :: [#node{}]
+}).
+
+-record(info_hash, {
+    info_hash           :: binary(),
+    peers       = []    :: [{inet:ip_address(), inet:port_number()}]
 }).
 
 -record(requested_peer, {
@@ -92,6 +96,7 @@
     socket                              :: port(),
     k                                   :: pos_integer(),
     buckets                     = []    :: [#bucket{}],
+    info_hashes                 = []    :: [#info_hash{}],  % @todo persist?
     get_peers_searches          = []    :: [#get_peers_search{}],
     get_peers_searches_timer            :: reference()
 }).
@@ -177,17 +182,6 @@ get_buckets_filling() ->
 %%
 get_peers_searches() ->
     gen_server:cast(?SERVER, get_peers_searches).
-
-
-%%%===================================================================
-%%% Internal API
-%%%===================================================================
-
-%%
-%%
-%%
-update_node_async(Ip, Port, Params) ->
-    gen_server:cast(?SERVER, {update_node_async, Ip, Port, Params}).
 
 
 %%%===================================================================
@@ -324,14 +318,17 @@ handle_cast({add_node, Ip, Port, Hash}, State = #state{my_node_hash = MyNodeHash
 %
 %
 handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{buckets = Buckets}) ->
-    % @todo first check local state for info_hash
-    % Flatten all nodes in all buckets or take concrete node
     NodesForSearch = case {Ip, Port} of
         {undefined, undefined} ->
+            % First check in the local cache for a peer
+            LocalPeers = find_local_peers_by_info_hash(InfoHash, State),
+            io:format("xxxxxx LocalPeers = ~p~n", [LocalPeers]),
+            % Flatten all nodes in all buckets
             lists:foldl(fun (#bucket{nodes = Nodes}, NodesAcc) ->
                 NodesAcc ++ Nodes
             end, [], Buckets);
         _ ->
+            % ...or take particular node from state
             {ok, _Bucket, Node} = get_bucket_and_node(Ip, Port, State),
             [Node]
     end,
@@ -361,12 +358,6 @@ handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{buckets = Buckets}) 
 handle_cast(get_peers_searches, State = #state{get_peers_searches = GetPeersSearches}) ->
     io:format("xxxxxxxx GetPeersSearches=~p~n", [GetPeersSearches]),
     {noreply, State};
-
-%
-%
-handle_cast({update_node_async, Ip, Port, Params}, State) ->
-    NewState = update_node(Ip, Port, Params, State),
-    {noreply, NewState};
 
 %
 %
@@ -466,7 +457,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
                     {value, GetPeersSearch} = lists:keysearch(InfoHash, #get_peers_search.info_hash, GetPeersSearches),
                     NewGetPeersSearch = GetPeersSearch#get_peers_search{last_changed = calendar:local_time()},
                     NewState0 = State#state{get_peers_searches = lists:keyreplace(InfoHash, #get_peers_search.info_hash, GetPeersSearches, NewGetPeersSearch)},
-                    case What of
+                    NewState1 = case What of
                         % Continue search
                         nodes ->
                             ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
@@ -477,22 +468,23 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
                                         ok = add_node(FoundIp, FoundPort, FoundedHash),
                                         ok = get_peers(FoundIp, FoundPort, InfoHash)
                                 end
-                            end, NodesOrValues);
+                            end, NodesOrValues),
+                            NewState0;
                         % Stop search and save info hashes
                         values ->
                             io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, NodesOrValues]),
                             % @todo fire event
-                            ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort}) ->
+                            lists:foldl(fun (#{ip := FoundIp, port := FoundPort}, StateAcc) ->
                                 ok = add_node(FoundIp, FoundPort),
-                                ok = update_node_async(FoundIp, FoundPort, [{add_info_hash, InfoHash}])
-                            end, NodesOrValues)
+                                add_peer(InfoHash, FoundIp, FoundPort, StateAcc)
+                            end, NewState0, NodesOrValues)
                     end,
                     Params = [
                         {token,               Token},
                         {last_changed,        calendar:local_time()},
                         {active_transactions, NewActiveTx}
                     ],
-                    update_node(Ip, Port, Params, NewState0);
+                    update_node(Ip, Port, Params, NewState1);
                 %
                 % Handle announce_peer query
                 {ok, announce_peer, q, _Data, GotTxId} ->
@@ -728,7 +720,6 @@ update_transaction_id(Node = #node{transaction_id = LastTransactionIdBin}) ->
     Port    :: inet:port_number(),
     Params  :: [{hash, Hash :: binary()} |
                 {token, Token :: binary()} |
-                {add_info_hash, InfoHash :: binary()} |
                 {last_changed, LastChanged :: calendar:datetime()} |
                 {active_transactions, [ActiveTx :: active_tx()]} |
                 transaction_id |
@@ -748,8 +739,6 @@ update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets 
             end;
         ({token, Token}, AccNode) ->
             AccNode#node{token = Token};
-        ({add_info_hash, InfoHash}, AccNode = #node{info_hashes = InfoHashes}) ->
-            AccNode#node{info_hashes = [InfoHash | InfoHashes]};
         ({last_changed, LastChanged}, AccNode) ->
             AccNode#node{last_changed = LastChanged};
         ({active_transactions, ActiveTx}, AccNode) ->
@@ -905,25 +894,6 @@ maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
 %%
 %%
 %%
-%%-spec maybe_buckets_full(
-%%    State    :: #state{}
-%%) -> boolean().
-%%
-%%maybe_buckets_full(#state{k = K, buckets = Buckets}) -> maybe_buckets_full(Buckets, K).
-%%maybe_buckets_full([], _) -> true;
-%%maybe_buckets_full([#bucket{nodes = Nodes} | _], K) when length(Nodes) /= K -> false;
-%%maybe_buckets_full([_ | Buckets], K) -> maybe_buckets_full(Buckets, K).
-
-
-%%
-%%
-%%
-%%find_node_by_info_hash(_InfoHash, _State) ->
-%%    ok.
-
-%%
-%%
-%%
 %%find_n_closest_nodes(Hash, N, State = #state{buckets = Buckets}) ->
 %%    find_n_closest_nodes(Hash, N, Buckets, []).
 %%
@@ -936,6 +906,13 @@ maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
 %%
 %%
 %%
+-spec find_info_hash_by_tx_and_peer(
+    TxId    :: tx_id(),
+    Ip      :: inet:ip_address(),
+    Port    :: inet:port_number(),
+    State   :: #state{}
+) -> false | binary().
+
 find_info_hash_by_tx_and_peer(TxId, Ip, Port, #state{get_peers_searches = GetPeersSearches}) ->
     find_info_hash_by_tx_and_peer(TxId, Ip, Port, GetPeersSearches);
 
@@ -959,6 +936,58 @@ find_info_hash_by_tx_and_peer(TxId, Ip, Port, [#requested_peer{} | RequestedPeer
 %%
 %%
 %%
+-spec find_local_peers_by_info_hash(
+    InfoHash :: binary(),
+    State    :: #state{}
+) -> [#{ip => inet:ip_address(), port => inet:port_number()}].
+
+find_local_peers_by_info_hash(InfoHash, #state{info_hashes = InfoHashes}) ->
+    case lists:keysearch(InfoHash, #info_hash.info_hash, InfoHashes) of
+        {value, #info_hash{peers = Peers}} ->
+            lists:map(fun ({Ip, Port}) ->
+                #{ip => Ip, port => Port}
+            end, Peers);
+        false ->
+            []
+    end.
+
+
+%%
+%%
+%%
+-spec add_peer(
+    InfoHashBin :: binary(),
+    Ip          :: inet:ip_address(),
+    Port        :: inet:port_number(),
+    State       :: #state{}
+) -> NewState   :: #state{}.
+
+add_peer(InfoHashBin, Ip, Port, State = #state{info_hashes = InfoHashes}) ->
+    case lists:keysearch(InfoHashBin, #info_hash.info_hash, InfoHashes) of
+        {value, InfoHash = #info_hash{peers = Peers}} ->
+            case lists:member({Ip, Port}, Peers) of
+                true  ->
+                    State;
+                false ->
+                    NewInfoHash = InfoHash#info_hash{peers = [{Ip, Port} | Peers]},
+                    State#state{info_hashes = lists:keyreplace(InfoHashBin, #info_hash.info_hash, InfoHashes, NewInfoHash)}
+            end;
+        false ->
+            NewInfoHash = #info_hash{info_hash = InfoHashBin, peers = [{Ip, Port}]},
+            State#state{info_hashes = [NewInfoHash | InfoHashes]}
+    end.
+
+
+%%
+%%
+%%
+-spec is_peer_already_requested(
+    InfoHash :: binary(),
+    Ip       :: inet:ip_address(),
+    Port     :: inet:port_number(),
+    State    :: #state{}
+) -> boolean().
+
 is_peer_already_requested(InfoHash, Ip, Port, #state{get_peers_searches = GetPeersSearches}) ->
     {value, #get_peers_search{requested_peers = RequestedPeers}} = lists:keysearch(InfoHash, #get_peers_search.info_hash, GetPeersSearches),
     case lists:keysearch({Ip, Port}, #requested_peer.ip_port, RequestedPeers) of
