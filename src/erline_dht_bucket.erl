@@ -49,7 +49,9 @@
 -define(ACTIVE_TTL, 840). % 14 min
 -define(GET_PEERS_SEARCH_TTL, 120). % 2 min
 -define(SUSPICIOUS_TTL, 900). % 15 min (ACTIVE_TTL + 1 min)
--define(NOT_ASSIGNED_NODES_TABLE, 'erline_dht$not_assigned_nodes'). % @todo move to module. Make persistence layer changeable.
+% @todo move to module. Make persistence layer changeable.
+% @todo use 'compressed' option?
+-define(NOT_ASSIGNED_NODES_TABLE, 'erline_dht$not_assigned_nodes').
 
 -type status()      :: suspicious | active | not_active.
 -type request()     :: ping | find_node | get_peers | announce.
@@ -322,6 +324,7 @@ handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{buckets = Buckets}) 
         {undefined, undefined} ->
             % First check in the local cache for a peer
             LocalPeers = find_local_peers_by_info_hash(InfoHash, State),
+            % @todo fire event with LocalPeers
             io:format("xxxxxx LocalPeers = ~p~n", [LocalPeers]),
             % Flatten all nodes in all buckets
             lists:foldl(fun (#bucket{nodes = Nodes}, NodesAcc) ->
@@ -513,42 +516,41 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
 
 %
 %
-handle_info({bucket_check, Distance}, State = #state{buckets = CurrBuckets}) ->
+handle_info({bucket_check, Distance}, State = #state{k = K, buckets = CurrBuckets}) ->
     {value, #bucket{nodes = Nodes}} = lists:keysearch(Distance, #bucket.distance, CurrBuckets),
     {NewState0, BecomeNotActive} = lists:foldl(fun (Node, {CurrAccState, BecomeNotActiveAcc}) ->
         #node{ip_port = {Ip, Port}, last_changed = LastChanged, status = Status} = Node,
         case erline_dht_helper:datetime_diff(calendar:local_time(), LastChanged) of
             SecondsTillLastChanged when SecondsTillLastChanged > ?ACTIVE_TTL, Status =:= active ->
-%%                io:format("Node {~p, ~p} in bucket ~p became suspicious.~n", [Ip, Port, Distance]),
                 CurrAccState0 = update_node(Ip, Port, [{status, suspicious}], CurrAccState),
                 % Try to ping once again
                 {ok, NewAccState} = do_ping_async(Ip, Port, CurrAccState0),
                 {NewAccState, BecomeNotActiveAcc};
             SecondsTillLastChanged when SecondsTillLastChanged > ?SUSPICIOUS_TTL, Status =:= suspicious ->
-%%                io:format("Node {~p, ~p} in bucket ~p became not_active.~n", [Ip, Port, Distance]),
                 {update_node(Ip, Port, [{status, not_active}], CurrAccState), BecomeNotActiveAcc + 1};
             _SecondsTillLastChanged ->
                 {CurrAccState, BecomeNotActiveAcc}
         end
     end, {State, 0}, Nodes),
     NewState1 = update_bucket(Distance, [check_timer], NewState0),
-    % Check if there are nodes which became not_active and try to replace them with nodes from not assigned nodes list
+    % Check if there are nodes which became not_active and try to replace them with K * 10 freshest nodes from not assigned nodes list
+    NotAssignedNodes = lists:sort(fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
+        LastChanged1 > LastChanged2
+    end, ets:match_object(?NOT_ASSIGNED_NODES_TABLE, #node{distance = Distance, _ = '_'})),
     NewState2 = case BecomeNotActive of
         0 ->
             NewState1;
         _ ->
-            % @todo optimize
             lists:foldl(fun (#node{ip_port = {Ip, Port}}, CurrAccState) ->
                 {ok, NewAccState} = do_ping_async(Ip, Port, CurrAccState),
                 NewAccState
-            end, NewState1, ets:match_object(?NOT_ASSIGNED_NODES_TABLE, #node{distance = Distance, _ = '_'}))
+            end, NewState1, lists:sublist(NotAssignedNodes, K * 10))
     end,
     {noreply, NewState2};
 
 %
 %
 handle_info({bucket_ping, Distance}, State = #state{buckets = Buckets}) ->
-%%    io:format("Bucket (~p) ping.~n", [Distance]),
     {value, #bucket{nodes = Nodes}} = lists:keysearch(Distance, #bucket.distance, Buckets),
     NewState0 = lists:foldl(fun (#node{ip_port = {Ip, Port}}, CurrAccState) ->
         {ok, NewAccState} = do_ping_async(Ip, Port, CurrAccState),
