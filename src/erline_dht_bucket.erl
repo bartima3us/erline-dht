@@ -45,9 +45,11 @@
 -define(BUCKET_PING_HIGH_TIME, 840000). % 12 min
 -define(BUCKET_CHECK_LOW_TIME, 60000). % 1 min
 -define(BUCKET_CHECK_HIGH_TIME, 180000). % 3 min
+-define(GET_PEERS_SEARCH_CHECK_TIME, 60000). % 1 min
 -define(ACTIVE_TTL, 840). % 14 min
+-define(GET_PEERS_SEARCH_TTL, 120). % 2 min
 -define(SUSPICIOUS_TTL, 900). % 15 min (ACTIVE_TTL + 1 min)
--define(NOT_ASSIGNED_NODES_TABLE, 'erline_dht$not_assigned_nodes').
+-define(NOT_ASSIGNED_NODES_TABLE, 'erline_dht$not_assigned_nodes'). % @todo move to module. Make persistence layer changeable.
 
 -type status()      :: suspicious | active | not_active.
 -type request()     :: ping | find_node | get_peers | announce.
@@ -81,16 +83,17 @@
 
 -record(get_peers_search, {
     info_hash               :: binary(),
-    last_changed            :: calendar:datetime(), % @todo delete 2 minutes old
+    last_changed            :: calendar:datetime(),
     requested_peers = []    :: [#requested_peer{}]
 }).
 
 -record(state, {
-    my_node_hash                :: binary(),
-    socket                      :: port(),
-    k                           :: pos_integer(),
-    buckets             = []    :: [#bucket{}],
-    get_peers_searches  = []    :: [#get_peers_search{}]
+    my_node_hash                        :: binary(),
+    socket                              :: port(),
+    k                                   :: pos_integer(),
+    buckets                     = []    :: [#bucket{}],
+    get_peers_searches          = []    :: [#get_peers_search{}],
+    get_peers_searches_timer            :: reference()
 }).
 
 %%%===================================================================
@@ -177,6 +180,17 @@ get_peers_searches() ->
 
 
 %%%===================================================================
+%%% Internal API
+%%%===================================================================
+
+%%
+%%
+%%
+update_node_async(Ip, Port, Params) ->
+    gen_server:cast(?SERVER, {update_node_async, Ip, Port, Params}).
+
+
+%%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
@@ -203,10 +217,11 @@ init([K, MyNodeHash]) ->
     end, [], lists:seq(0, erlang:bit_size(MyNodeHash))),
     ets:new(?NOT_ASSIGNED_NODES_TABLE, [set, named_table, {keypos, #node.ip_port}]),
     NewState = #state{
-        socket       = Socket,
-        k            = K,
-        my_node_hash = MyNodeHash,
-        buckets      = lists:reverse(Buckets)
+        socket                   = Socket,
+        k                        = K,
+        my_node_hash             = MyNodeHash,
+        buckets                  = lists:reverse(Buckets),
+        get_peers_searches_timer = schedule_get_peers_searches_check()
     },
     % Bootstrap
     % @todo make optional
@@ -311,8 +326,8 @@ handle_cast({add_node, Ip, Port, Hash}, State = #state{my_node_hash = MyNodeHash
 handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{buckets = Buckets}) ->
     % @todo first check local state for info_hash
     % Flatten all nodes in all buckets or take concrete node
-    NodesForSearch = case Ip of
-        undefined ->
+    NodesForSearch = case {Ip, Port} of
+        {undefined, undefined} ->
             lists:foldl(fun (#bucket{nodes = Nodes}, NodesAcc) ->
                 NodesAcc ++ Nodes
             end, [], Buckets);
@@ -349,6 +364,12 @@ handle_cast(get_peers_searches, State = #state{get_peers_searches = GetPeersSear
 
 %
 %
+handle_cast({update_node_async, Ip, Port, Params}, State) ->
+    NewState = update_node(Ip, Port, Params, State),
+    {noreply, NewState};
+
+%
+%
 handle_cast(_Request, State) ->
     {noreply, State}.
 
@@ -362,7 +383,12 @@ handle_cast(_Request, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, my_node_hash = MyNodeHash}) ->
+handle_info({udp, Socket, Ip, Port, Response}, State) ->
+    #state{
+        socket             = Socket,
+        my_node_hash       = MyNodeHash,
+        get_peers_searches = GetPeersSearches
+    } = State,
     NewState = case get_bucket_and_node(Ip, Port, State) of
         {ok, Bucket, #node{active_transactions = ActiveTx}} ->
             case erline_dht_message:parse_krpc_response(Response, ActiveTx) of
@@ -434,33 +460,39 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                     update_node(Ip, Port, Params, State);
                 %
                 % Handle get_peers response
-                {ok, get_peers, r, GetPeersResponse, NewActiveTx} ->
-                    Token = case GetPeersResponse of
+                {ok, get_peers, r, {What, TxId, NodesOrValues, Token}, NewActiveTx} ->
+                    InfoHash = find_info_hash_by_tx_and_peer(TxId, Ip, Port, State),
+                    % Update last changed
+                    {value, GetPeersSearch} = lists:keysearch(InfoHash, #get_peers_search.info_hash, GetPeersSearches),
+                    NewGetPeersSearch = GetPeersSearch#get_peers_search{last_changed = calendar:local_time()},
+                    NewState0 = State#state{get_peers_searches = lists:keyreplace(InfoHash, #get_peers_search.info_hash, GetPeersSearches, NewGetPeersSearch)},
+                    case What of
                         % Continue search
-                        {nodes, TxId, Nodes, Token} ->
-                            InfoHash = find_info_hash_by_tx_and_peer(TxId, Ip, Port, State),
+                        nodes ->
                             ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
-                                case is_peer_already_requested(InfoHash, FoundIp, FoundPort, State) of
+                                case is_peer_already_requested(InfoHash, FoundIp, FoundPort, NewState0) of
                                     true  ->
                                         ok;
                                     false ->
                                         ok = add_node(FoundIp, FoundPort, FoundedHash),
                                         ok = get_peers(FoundIp, FoundPort, InfoHash)
                                 end
-                            end, Nodes),
-                            Token;
-                        {values, _TxId, Values, Token} ->
-                            io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, Values]),
-                            % @todo add info hash to state
+                            end, NodesOrValues);
+                        % Stop search and save info hashes
+                        values ->
+                            io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, NodesOrValues]),
                             % @todo fire event
-                            Token
+                            ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort}) ->
+                                ok = add_node(FoundIp, FoundPort),
+                                ok = update_node_async(FoundIp, FoundPort, [{add_info_hash, InfoHash}])
+                            end, NodesOrValues)
                     end,
                     Params = [
                         {token,               Token},
                         {last_changed,        calendar:local_time()},
                         {active_transactions, NewActiveTx}
                     ],
-                    update_node(Ip, Port, Params, State);
+                    update_node(Ip, Port, Params, NewState0);
                 %
                 % Handle announce_peer query
                 {ok, announce_peer, q, _Data, GotTxId} ->
@@ -531,7 +563,20 @@ handle_info({bucket_ping, Distance}, State = #state{buckets = Buckets}) ->
         NewAccState
     end, State, Nodes),
     NewState1 = update_bucket(Distance, [ping_timer], NewState0),
-    {noreply, NewState1}.
+    {noreply, NewState1};
+
+%
+%
+handle_info(get_peers_searches_check, State = #state{get_peers_searches = GetPeersSearches}) ->
+    NewGetPeersSearches = lists:filter(fun (#get_peers_search{last_changed = LastChanged}) ->
+        erline_dht_helper:datetime_diff(calendar:local_time(), LastChanged) < ?GET_PEERS_SEARCH_TTL
+    end, GetPeersSearches),
+    NewState = State#state{
+        get_peers_searches = NewGetPeersSearches,
+        get_peers_searches_timer = schedule_get_peers_searches_check()
+    },
+    {noreply, NewState}.
+
 
 %%--------------------------------------------------------------------
 %% @private
@@ -683,6 +728,7 @@ update_transaction_id(Node = #node{transaction_id = LastTransactionIdBin}) ->
     Port    :: inet:port_number(),
     Params  :: [{hash, Hash :: binary()} |
                 {token, Token :: binary()} |
+                {add_info_hash, InfoHash :: binary()} |
                 {last_changed, LastChanged :: calendar:datetime()} |
                 {active_transactions, [ActiveTx :: active_tx()]} |
                 transaction_id |
@@ -700,10 +746,12 @@ update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets 
                 {ok, Distance}   -> AccNode#node{hash = Hash, distance = Distance};
                 {error, _Reason} -> AccNode#node{hash = Hash}
             end;
-        ({last_changed, LastChanged}, AccNode) ->
-            AccNode#node{last_changed = LastChanged};
         ({token, Token}, AccNode) ->
             AccNode#node{token = Token};
+        ({add_info_hash, InfoHash}, AccNode = #node{info_hashes = InfoHashes}) ->
+            AccNode#node{info_hashes = [InfoHash | InfoHashes]};
+        ({last_changed, LastChanged}, AccNode) ->
+            AccNode#node{last_changed = LastChanged};
         ({active_transactions, ActiveTx}, AccNode) ->
             AccNode#node{active_transactions = ActiveTx};
         (transaction_id, AccNode) ->
@@ -804,6 +852,15 @@ schedule_bucket_check(Distance) ->
 schedule_bucket_ping(Distance) ->
     Time = crypto:rand_uniform(?BUCKET_PING_LOW_TIME, ?BUCKET_PING_HIGH_TIME),
     erlang:send_after(Time, self(), {bucket_ping, Distance}).
+
+
+%%
+%%
+%%
+-spec schedule_get_peers_searches_check() -> reference().
+
+schedule_get_peers_searches_check() ->
+    erlang:send_after(?GET_PEERS_SEARCH_CHECK_TIME, self(), get_peers_searches_check).
 
 
 %%
