@@ -204,18 +204,23 @@ parse_krpc_response(Response, ActiveTx) ->
                 error ->
                     []
             end;
-       (get_peers, TransactionId, Resp) ->
+        (get_peers, TransactionId, Resp) ->
+            PeerToken = case dict:find(<<"token">>, Resp) of
+                {ok, Token} -> Token;
+                error       -> <<>>
+            end,
             case dict:find(<<"values">>, Resp) of
-                {ok, CompactValuesInfo} ->
-                    io:format("xxxxxxxx VALUES ~p~n!!!!", [CompactValuesInfo]),
-                    {TransactionId, []};
+                {ok, {list, PeerInfoList}} ->
+                    ParsedPeerInfoList = erline_dht_helper:parse_peer_info(PeerInfoList),
+                    % @todo return token too
+                    {values, TransactionId, ParsedPeerInfoList, PeerToken};
                 error ->
                     case dict:find(<<"nodes">>, Resp) of
                         {ok, CompactNodeInfo} ->
                             ParsedCompactNodeInfo = erline_dht_helper:parse_compact_node_info(CompactNodeInfo),
-                            {TransactionId, ParsedCompactNodeInfo};
+                            {nodes, TransactionId, ParsedCompactNodeInfo, PeerToken};
                         error ->
-                            {TransactionId, []}
+                            {nodes, TransactionId, [], PeerToken}
                     end
             end
     end,
@@ -310,6 +315,7 @@ socket_send(Socket, Ip, Port, Payload) ->
         ok              -> ok;
         {error, einval} -> ok; % Ip or port can be malformed
         {error, eagain} -> ok  % @todo ???
+        % @todo handle {error, enetunreach} ?
     end.
 
 

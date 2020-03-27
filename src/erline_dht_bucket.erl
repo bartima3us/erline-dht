@@ -53,7 +53,7 @@
 -type request()     :: ping | find_node | get_peers | announce.
 -type tx_id()       :: binary().
 -type active_tx()   :: {request(), tx_id()}.
--type distance()    :: 1..160.
+-type distance()    :: 0..160.
 
 -record(node, {
     ip_port                             :: {inet:ip_address(), inet:port_number()},
@@ -63,7 +63,8 @@
     transaction_id      = <<0,0>>       :: tx_id(),
     active_transactions = []            :: [{request(), tx_id()}],
     status              = suspicious    :: status(),
-    distance                            :: distance() % Denormalized field. Mapping: #node.distance = #bucket.distance.
+    distance                            :: distance(), % Denormalized field. Mapping: #node.distance = #bucket.distance.
+    info_hashes         = []            :: [binary()]
 }).
 
 -record(bucket, {
@@ -80,7 +81,7 @@
 
 -record(get_peers_search, {
     info_hash               :: binary(),
-    last_changed            :: calendar:datetime(), % @todo implement
+    last_changed            :: calendar:datetime(), % @todo delete 2 minutes old
     requested_peers = []    :: [#requested_peer{}]
 }).
 
@@ -207,6 +208,18 @@ init([K, MyNodeHash]) ->
         my_node_hash = MyNodeHash,
         buckets      = lists:reverse(Buckets)
     },
+    % Bootstrap
+    % @todo make optional
+    AddBootstrapNodeFun = fun (Address, Port) ->
+        ok = case inet:getaddr(Address, inet) of
+            {ok, Ip} -> add_node(Ip, Port);
+            _ -> ok
+        end
+    end,
+    ok = AddBootstrapNodeFun("router.bittorrent.com", 6881),
+    ok = AddBootstrapNodeFun("dht.transmissionbt.com", 6881),
+    ok = AddBootstrapNodeFun("router.utorrent.com", 6881),
+    ok = AddBootstrapNodeFun("dht.transmissionbt.com", 6881),
     {ok, NewState}.
 
 %%--------------------------------------------------------------------
@@ -296,6 +309,7 @@ handle_cast({add_node, Ip, Port, Hash}, State = #state{my_node_hash = MyNodeHash
 %
 %
 handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{buckets = Buckets}) ->
+    % @todo first check local state for info_hash
     % Flatten all nodes in all buckets or take concrete node
     NodesForSearch = case Ip of
         undefined ->
@@ -420,22 +434,32 @@ handle_info({udp, Socket, Ip, Port, Response}, State = #state{socket = Socket, m
                     update_node(Ip, Port, Params, State);
                 %
                 % Handle get_peers response
-                {ok, get_peers, r, {TxId, Nodes}, NewActiveTx} ->
-                    % @todo implement
+                {ok, get_peers, r, GetPeersResponse, NewActiveTx} ->
+                    Token = case GetPeersResponse of
+                        % Continue search
+                        {nodes, TxId, Nodes, Token} ->
+                            InfoHash = find_info_hash_by_tx_and_peer(TxId, Ip, Port, State),
+                            ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
+                                case is_peer_already_requested(InfoHash, FoundIp, FoundPort, State) of
+                                    true  ->
+                                        ok;
+                                    false ->
+                                        ok = add_node(FoundIp, FoundPort, FoundedHash),
+                                        ok = get_peers(FoundIp, FoundPort, InfoHash)
+                                end
+                            end, Nodes),
+                            Token;
+                        {values, _TxId, Values, Token} ->
+                            io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, Values]),
+                            % @todo add info hash to state
+                            % @todo fire event
+                            Token
+                    end,
                     Params = [
+                        {token,               Token},
                         {last_changed,        calendar:local_time()},
                         {active_transactions, NewActiveTx}
                     ],
-                    InfoHash = find_info_hash_by_tx_and_peer(TxId, Ip, Port, State),
-                    ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
-                        case is_peer_already_requested(InfoHash, FoundIp, FoundPort, State) of
-                            true  ->
-                                ok;
-                            false ->
-                                ok = add_node(FoundIp, FoundPort, FoundedHash),
-                                ok = get_peers(FoundIp, FoundPort, InfoHash)
-                        end
-                    end, Nodes),
                     update_node(Ip, Port, Params, State);
                 %
                 % Handle announce_peer query
@@ -545,7 +569,7 @@ code_change(_OldVsn, State, _Extra) ->
     Ip      :: inet:ip_address(),
     Port    :: inet:port_number(),
     State   :: #state{}
-) -> {ok, State :: #state{}}.
+) -> {ok, NewState :: #state{}}.
 
 do_ping_async(Ip, Port, State = #state{my_node_hash = MyNodeHash, socket = Socket}) ->
     {ok, _Bucket, Node} = get_bucket_and_node(Ip, Port, State),
@@ -555,7 +579,6 @@ do_ping_async(Ip, Port, State = #state{my_node_hash = MyNodeHash, socket = Socke
         {active_transactions, [{ping, TxId} | CurrActiveTx]}
     ],
     NewState = update_node(Ip, Port, Params, State),
-    ok = erline_dht_helper:socket_active(Socket),
     ok = erline_dht_message:send_ping(Ip, Port, Socket, MyNodeHash, TxId),
     {ok, NewState}.
 
@@ -568,7 +591,7 @@ do_ping_async(Ip, Port, State = #state{my_node_hash = MyNodeHash, socket = Socke
     Port    :: inet:port_number(),
     Target  :: binary(),
     State   :: #state{}
-) -> {ok, State :: #state{}}.
+) -> {ok, NewState :: #state{}}.
 
 do_find_node_async(Ip, Port, Target, State = #state{socket = Socket, my_node_hash = MyNodeHash}) ->
     {ok, _Bucket, Node} = get_bucket_and_node(Ip, Port, State),
@@ -578,7 +601,6 @@ do_find_node_async(Ip, Port, Target, State = #state{socket = Socket, my_node_has
         {active_transactions, [{find_node, TxId} | CurrActiveTx]}
     ],
     NewState = update_node(Ip, Port, Params, State),
-    ok = erline_dht_helper:socket_active(Socket),
     ok = erline_dht_message:send_find_node(Ip, Port, Socket, MyNodeHash, TxId, Target),
     {ok, NewState}.
 
@@ -591,7 +613,7 @@ do_find_node_async(Ip, Port, Target, State = #state{socket = Socket, my_node_has
     Port     :: inet:port_number(),
     InfoHash :: binary(),
     State    :: #state{}
-) -> {ok, TxId :: tx_id(), State :: #state{}}.
+) -> {ok, TxId :: tx_id(), NewState :: #state{}}.
 
 do_get_peers_async(Ip, Port, InfoHash, State = #state{my_node_hash = MyNodeHash, socket = Socket, buckets = Buckets}) ->
     {ok, _Bucket, Node} = get_bucket_and_node(Ip, Port, State),
@@ -601,7 +623,6 @@ do_get_peers_async(Ip, Port, InfoHash, State = #state{my_node_hash = MyNodeHash,
         {active_transactions, [{get_peers, TxId} | CurrActiveTx]}
     ],
     NewState = update_node(Ip, Port, Params, State),
-    ok = erline_dht_helper:socket_active(Socket),
     ok = erline_dht_message:send_get_peers(Ip, Port, Socket, MyNodeHash, TxId, InfoHash),
     {ok, TxId, NewState}.
 
@@ -640,7 +661,7 @@ get_bucket_and_node(Ip, Port, [Bucket = #bucket{nodes = Nodes} | Buckets]) ->
 %%
 -spec update_transaction_id(
     Node :: #node{}
-) -> Node :: #node{}.
+) -> NewNode :: #node{}.
 
 update_transaction_id(Node = #node{transaction_id = undefined}) ->
     Node#node{transaction_id = <<0,0>>};
@@ -661,6 +682,7 @@ update_transaction_id(Node = #node{transaction_id = LastTransactionIdBin}) ->
     Ip      :: inet:ip_address(),
     Port    :: inet:port_number(),
     Params  :: [{hash, Hash :: binary()} |
+                {token, Token :: binary()} |
                 {last_changed, LastChanged :: calendar:datetime()} |
                 {active_transactions, [ActiveTx :: active_tx()]} |
                 transaction_id |
@@ -668,7 +690,7 @@ update_transaction_id(Node = #node{transaction_id = LastTransactionIdBin}) ->
                 {assign, Dist :: distance()} |
                 unassign],
     State   :: #state{}
-) -> State :: #state{}.
+) -> NewState :: #state{}.
 
 update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets = Buckets}) ->
     {ok, Bucket, Node} = get_bucket_and_node(Ip, Port, State),
@@ -680,6 +702,8 @@ update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets 
             end;
         ({last_changed, LastChanged}, AccNode) ->
             AccNode#node{last_changed = LastChanged};
+        ({token, Token}, AccNode) ->
+            AccNode#node{token = Token};
         ({active_transactions, ActiveTx}, AccNode) ->
             AccNode#node{active_transactions = ActiveTx};
         (transaction_id, AccNode) ->
@@ -744,7 +768,7 @@ update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets 
                 ping_timer |
                 {nodes, [#node{}]}],
     State   :: #state{}
-) -> State :: #state{}.
+) -> NewState :: #state{}.
 
 update_bucket(Distance, Params, State = #state{buckets = Buckets}) ->
     {value, Bucket} = lists:keysearch(Distance, #bucket.distance, Buckets),
@@ -788,7 +812,7 @@ schedule_bucket_ping(Distance) ->
 -spec maybe_clear_bucket(
     Distance :: distance(),
     State    :: #state{}
-) -> {boolean(), State :: #state{}}.
+) -> {boolean(), NewState :: #state{}}.
 
 maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
     {value, #bucket{nodes = Nodes}} = lists:keysearch(Distance, #bucket.distance, Buckets),

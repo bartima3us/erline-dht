@@ -11,36 +11,12 @@
 
 %% API
 -export([
-    socket_active/1,
-    socket_active_once/1,
-    socket_passive/1,
     get_distance/2,
     get_hash_of_distance/2,
     parse_compact_node_info/1,
     parse_peer_info/1,
     datetime_diff/2
 ]).
-
-
-%%  @doc
-%%  Turn socket to active mode.
-%%
-socket_active(Socket) -> % @todo remove?
-    inet:setopts(Socket, [{active, true}]).
-
-
-%%  @doc
-%%  Turn socket to active once mode.
-%%
-socket_active_once(Socket) -> % @todo remove?
-    inet:setopts(Socket, [{active, once}]).
-
-
-%%  @doc
-%%  Turn socket to passive mode.
-%%
-socket_passive(Socket) -> % @todo remove?
-    inet:setopts(Socket, [{active, false}]).
 
 
 %%  @doc
