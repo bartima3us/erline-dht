@@ -8,6 +8,7 @@
 %%%-------------------------------------------------------------------
 -module(erline_dht_bucket).
 -author("bartimaeus").
+-include("erline_dht.hrl").
 
 -behaviour(gen_server).
 
@@ -49,26 +50,6 @@
 -define(ACTIVE_TTL, 840). % 14 min
 -define(GET_PEERS_SEARCH_TTL, 120). % 2 min
 -define(SUSPICIOUS_TTL, 900). % 15 min (ACTIVE_TTL + 1 min)
-% @todo move to module. Make persistence layer changeable.
-% @todo use 'compressed' option?
--define(NOT_ASSIGNED_NODES_TABLE, 'erline_dht$not_assigned_nodes').
-
--type status()      :: suspicious | active | not_active.
--type request()     :: ping | find_node | get_peers | announce.
--type tx_id()       :: binary().
--type active_tx()   :: {request(), tx_id()}.
--type distance()    :: 0..160.
-
--record(node, {
-    ip_port                             :: {inet:ip_address(), inet:port_number()},
-    hash                                :: binary(),
-    token                               :: binary(),
-    last_changed                        :: calendar:datetime(),
-    transaction_id      = <<0,0>>       :: tx_id(),
-    active_transactions = []            :: [{request(), tx_id()}],
-    status              = suspicious    :: status(),
-    distance                            :: distance() % Denormalized field. Mapping: #node.distance = #bucket.distance.
-}).
 
 -record(bucket, {
     distance            :: distance(),
@@ -212,14 +193,15 @@ init([K, MyNodeHash]) ->
         },
         [NewBucket | AccBuckets]
     end, [], lists:seq(0, erlang:bit_size(MyNodeHash))),
-    ets:new(?NOT_ASSIGNED_NODES_TABLE, [set, named_table, {keypos, #node.ip_port}]),
+    DbMod = erline_dht:get_env(db_mod, erline_dht_db_ets),
+    DbMod:init(),
     NewState = #state{
         socket                      = Socket,
         k                           = K,
         my_node_hash                = MyNodeHash,
         buckets                     = lists:reverse(Buckets),
         get_peers_searches_timer    = schedule_get_peers_searches_check(),
-        db_mod                      = erline_dht:get_env(db_mod, erline_dht_db_ets)
+        db_mod                      = DbMod
     },
     % Bootstrap
     AddBootstrapNodeFun = fun
@@ -269,7 +251,7 @@ handle_call({get_all_nodes_in_bucket, Distance}, _From, State = #state{buckets =
     end,
     {reply, Response, State};
 
-handle_call({get_not_assigned_nodes, Distance}, _From, State = #state{}) ->
+handle_call({get_not_assigned_nodes, Distance}, _From, State = #state{db_mod = DbMod}) ->
     Response = lists:filtermap(fun (Node) ->
         #node{
             ip_port         = {Ip, Port},
@@ -282,7 +264,7 @@ handle_call({get_not_assigned_nodes, Distance}, _From, State = #state{}) ->
             true  -> {true, Response};
             false -> false
         end
-    end, ets:match_object(?NOT_ASSIGNED_NODES_TABLE, #node{_ = '_'})),
+    end, DbMod:get_not_assigned_nodes()),
     {reply, Response, State};
 
 handle_call(get_buckets_filling, _From, State = #state{buckets = Buckets}) ->
@@ -301,7 +283,7 @@ handle_call(_Request, _From, State) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-handle_cast({add_node, Ip, Port, Hash}, State = #state{my_node_hash = MyNodeHash}) ->
+handle_cast({add_node, Ip, Port, Hash}, State = #state{my_node_hash = MyNodeHash, db_mod = DbMod}) ->
     NewState = case get_bucket_and_node(Ip, Port, State) of
         false ->
             Distance = case Hash of
@@ -315,7 +297,7 @@ handle_cast({add_node, Ip, Port, Hash}, State = #state{my_node_hash = MyNodeHash
                     end
             end,
             NewNode = #node{ip_port = {Ip, Port}, hash = Hash, distance = Distance},
-            true = ets:insert(?NOT_ASSIGNED_NODES_TABLE, NewNode),
+            true = DbMod:insert_to_not_assigned_nodes(NewNode),
             {ok, NewState0} = do_ping_async(Ip, Port, State),
             NewState0;
         {ok, _Bucket, #node{}} ->
@@ -522,7 +504,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
 
 %
 %
-handle_info({bucket_check, Distance}, State = #state{k = K, buckets = CurrBuckets}) ->
+handle_info({bucket_check, Distance}, State = #state{k = K, buckets = CurrBuckets, db_mod = DbMod}) ->
     {value, #bucket{nodes = Nodes}} = lists:keysearch(Distance, #bucket.distance, CurrBuckets),
     {NewState0, BecomeNotActive} = lists:foldl(fun (Node, {CurrAccState, BecomeNotActiveAcc}) ->
         #node{ip_port = {Ip, Port}, last_changed = LastChanged, status = Status} = Node,
@@ -542,7 +524,7 @@ handle_info({bucket_check, Distance}, State = #state{k = K, buckets = CurrBucket
     % Check if there are nodes which became not_active and try to replace them with K * 10 freshest nodes from not assigned nodes list
     NotAssignedNodes = lists:sort(fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
         LastChanged1 > LastChanged2
-    end, ets:match_object(?NOT_ASSIGNED_NODES_TABLE, #node{distance = Distance, _ = '_'})),
+    end, DbMod:get_not_assigned_nodes_by_distance(Distance)),
     NewState2 = case BecomeNotActive of
         0 ->
             NewState1;
@@ -685,8 +667,8 @@ do_get_peers_async(Ip, Port, InfoHash, State = #state{my_node_hash = MyNodeHash,
     State   :: #state{}
 ) -> false | {ok, Bucket :: #bucket{} | false, Node :: #node{}}.
 
-get_bucket_and_node(Ip, Port, #state{buckets = Buckets}) ->
-    case ets:match_object(?NOT_ASSIGNED_NODES_TABLE, #node{ip_port = {Ip, Port}, _ = '_'}) of
+get_bucket_and_node(Ip, Port, #state{buckets = Buckets, db_mod = DbMod}) ->
+    case DbMod:get_not_assigned_nodes_by_ip_and_port(Ip, Port) of
         [Node] -> {ok, false, Node};
         []     -> get_bucket_and_node(Ip, Port, Buckets)
     end;
@@ -737,7 +719,7 @@ update_transaction_id(Node = #node{transaction_id = LastTransactionIdBin}) ->
     State   :: #state{}
 ) -> NewState :: #state{}.
 
-update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets = Buckets}) ->
+update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets = Buckets, db_mod = DbMod}) ->
     {ok, Bucket, Node} = get_bucket_and_node(Ip, Port, State),
     UpdatedNode = lists:foldl(fun
         ({hash, Hash}, AccNode) ->
@@ -782,7 +764,7 @@ update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets 
             % Check for `unassign` param
             NewBuckets1 = case lists:member(unassign, Params) of
                 true ->
-                    true = ets:insert(?NOT_ASSIGNED_NODES_TABLE, UpdatedNode),
+                    true = DbMod:insert_to_not_assigned_nodes(UpdatedNode),
                     NewNodes1 = lists:keydelete({Ip, Port}, #node.ip_port, Nodes),
                     lists:keyreplace(CurrDist, #bucket.distance, Buckets, Bucket#bucket{nodes = NewNodes1});
                 false ->
@@ -793,12 +775,12 @@ update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets 
             case lists:keysearch(assign, 1, Params) of
                 % Assign updated node to the bucket if there is assign param
                 {value, {assign, NewDist}} ->
-                    true = ets:match_delete(?NOT_ASSIGNED_NODES_TABLE, #node{ip_port = {Ip, Port}, _ = '_'}),
+                    true = DbMod:delete_from_not_assigned_nodes(Ip, Port),
                     NewBuckets = AddNodeToBucketFun(NewDist),
                     State#state{buckets = NewBuckets};
                 % Just put updated node in the not assigned nodes list
                 false ->
-                    true = ets:insert(?NOT_ASSIGNED_NODES_TABLE, UpdatedNode),
+                    true = DbMod:insert_to_not_assigned_nodes(UpdatedNode),
                     State
             end
     end.
