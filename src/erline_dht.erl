@@ -8,6 +8,8 @@
 -behaviour(application).
 
 -export([
+    get_env/1,
+    get_env/2,
     add_node_to_bucket/2,
     get_all_nodes_in_bucket/1,
     get_not_assigned_nodes/0
@@ -19,16 +21,45 @@
     stop/1
 ]).
 
+-define(APP, erline_dht).
+
+%%====================================================================
+%% Application callbacks
+%%====================================================================
+
+%%
+%%
+%%
+start(_StartType, _StartArgs) ->
+    erline_dht_sup:start_link().
+
+
+%%
+%%
+%%
+stop(_State) ->
+    ok.
+
+
 %%====================================================================
 %% API
 %%====================================================================
 
-start(_StartType, _StartArgs) ->
-    erline_dht_sup:start_link().
+%%
+%%
+%%
+get_env(Var) ->
+    case application:get_env(?APP, Var) of
+        {ok, Val} -> Val;
+        undefined -> undefined
+    end.
 
-%%--------------------------------------------------------------------
-stop(_State) ->
-    ok.
+
+%%
+%%
+%%
+get_env(Var, Default) ->
+    application:get_env(?APP, Var, Default).
 
 
 %%

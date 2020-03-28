@@ -100,7 +100,8 @@
     buckets                     = []    :: [#bucket{}],
     info_hashes                 = []    :: [#info_hash{}],  % @todo persist?
     get_peers_searches          = []    :: [#get_peers_search{}],
-    get_peers_searches_timer            :: reference()
+    get_peers_searches_timer            :: reference(),
+    db_mod                              :: module()
 }).
 
 %%%===================================================================
@@ -213,24 +214,29 @@ init([K, MyNodeHash]) ->
     end, [], lists:seq(0, erlang:bit_size(MyNodeHash))),
     ets:new(?NOT_ASSIGNED_NODES_TABLE, [set, named_table, {keypos, #node.ip_port}]),
     NewState = #state{
-        socket                   = Socket,
-        k                        = K,
-        my_node_hash             = MyNodeHash,
-        buckets                  = lists:reverse(Buckets),
-        get_peers_searches_timer = schedule_get_peers_searches_check()
+        socket                      = Socket,
+        k                           = K,
+        my_node_hash                = MyNodeHash,
+        buckets                     = lists:reverse(Buckets),
+        get_peers_searches_timer    = schedule_get_peers_searches_check(),
+        db_mod                      = erline_dht:get_env(db_mod, erline_dht_db_ets)
     },
     % Bootstrap
-    % @todo make optional
-    AddBootstrapNodeFun = fun (Address, Port) ->
-        ok = case inet:getaddr(Address, inet) of
-            {ok, Ip} -> add_node(Ip, Port);
-            _ -> ok
-        end
+    AddBootstrapNodeFun = fun
+        (Address, Port) when is_list(Address) ->
+            ok = case inet:getaddr(Address, inet) of
+                {ok, Ip} -> add_node(Ip, Port);
+                _ -> ok
+            end;
+        (Ip, Port) when is_tuple(Ip) ->
+            ok = add_node(Ip, Port)
     end,
-    ok = AddBootstrapNodeFun("router.bittorrent.com", 6881),
-    ok = AddBootstrapNodeFun("dht.transmissionbt.com", 6881),
-    ok = AddBootstrapNodeFun("router.utorrent.com", 6881),
-    ok = AddBootstrapNodeFun("dht.transmissionbt.com", 6881),
+    ok = lists:foreach(fun ({AutoBootstrapNode, Port}) ->
+        ok = AddBootstrapNodeFun(AutoBootstrapNode, Port),
+        ok = AddBootstrapNodeFun(AutoBootstrapNode, Port),
+        ok = AddBootstrapNodeFun(AutoBootstrapNode, Port),
+        ok = AddBootstrapNodeFun(AutoBootstrapNode, Port)
+    end, erline_dht:get_env(auto_bootstrap_nodes, [])),
     {ok, NewState}.
 
 %%--------------------------------------------------------------------
@@ -508,7 +514,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
                     State
             end;
         false ->
-            % @todo handle request
+            % @todo handle request from unknown node
             ok = add_node(Ip, Port),
             State
     end,
