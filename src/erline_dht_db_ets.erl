@@ -29,9 +29,18 @@
 
 %%
 %%
-%% @todo use 'compressed' option?
+%%
 init() ->
-    ets:new(?NOT_ASSIGNED_NODES_TABLE, [set, named_table, {keypos, #node.ip_port}]).
+    % 'compressed' - trade-off. Example with 200k nodes:
+    % Read performance: 7 microseconds vs 13 microseconds;
+    % RAM consumption: 618 MB vs 266 MB
+    Options = [
+        set,
+        named_table,
+        compressed,
+        {keypos, #node.ip_port}
+    ],
+    ets:new(?NOT_ASSIGNED_NODES_TABLE, Options).
 
 
 %%
