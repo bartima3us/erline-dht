@@ -19,6 +19,7 @@
     add_node/3,
     get_peers/1,
     get_peers/3,
+    get_event_mgr_pid/0,
     get_all_nodes_in_bucket/1,
     get_not_assigned_nodes/0,
     get_not_assigned_nodes/1,
@@ -70,7 +71,8 @@
     buckets                     = []    :: [#bucket{}],
     info_hashes                 = []    :: [#info_hash{}],  % @todo persist?
     get_peers_searches_timer            :: reference(),
-    db_mod                              :: module()
+    db_mod                              :: module(),
+    event_mgr_pid                       :: pid()
 }).
 
 %%%===================================================================
@@ -119,6 +121,15 @@ get_peers(InfoHash) ->
 %%
 get_peers(Ip, Port, InfoHash) ->
     gen_server:cast(?SERVER, {get_peers, Ip, Port, InfoHash}).
+
+
+%%  @doc
+%%  Returns event manager pid.
+%%
+-spec get_event_mgr_pid() -> pid().
+
+get_event_mgr_pid() ->
+    gen_server:call(?SERVER, get_event_mgr_pid).
 
 
 %%
@@ -183,13 +194,15 @@ init([K, MyNodeHash]) ->
     end, [], lists:seq(0, erlang:bit_size(MyNodeHash))),
     DbMod = erline_dht:get_env(db_mod, erline_dht_db_ets),
     ok = DbMod:init(),
+    {ok, EventMgrPid} = gen_event:start_link(),
     NewState = #state{
         socket                      = Socket,
         k                           = K,
         my_node_hash                = MyNodeHash,
         buckets                     = lists:reverse(Buckets),
         get_peers_searches_timer    = schedule_get_peers_searches_check(),
-        db_mod                      = DbMod
+        db_mod                      = DbMod,
+        event_mgr_pid               = EventMgrPid
     },
     % Bootstrap
     AddBootstrapNodeFun = fun
@@ -216,6 +229,9 @@ init([K, MyNodeHash]) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
+handle_call(get_event_mgr_pid, _From, State = #state{event_mgr_pid = EventMgrPid}) ->
+    {reply, EventMgrPid, State};
+
 handle_call({get_all_nodes_in_bucket, Distance}, _From, State = #state{buckets = Buckets}) ->
     Response = case lists:keysearch(Distance, #bucket.distance, Buckets) of
         {value, #bucket{nodes = Nodes}} ->
@@ -271,7 +287,12 @@ handle_call(_Request, _From, State) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-handle_cast({add_node, Ip, Port, Hash}, State = #state{my_node_hash = MyNodeHash, db_mod = DbMod}) ->
+handle_cast({add_node, Ip, Port, Hash}, State = #state{}) ->
+    #state{
+        my_node_hash  = MyNodeHash,
+        db_mod        = DbMod,
+        event_mgr_pid = EventMgrPid
+    } = State,
     NewState = case get_bucket_and_node(Ip, Port, State) of
         false ->
             Distance = case Hash of
@@ -289,18 +310,24 @@ handle_cast({add_node, Ip, Port, Hash}, State = #state{my_node_hash = MyNodeHash
             {ok, NewState0} = do_ping_async(Ip, Port, State),
             NewState0;
         {ok, _Bucket, #node{}} ->
-            State % @todo fire event: {error, already_added}
+            ok = gen_event:notify(EventMgrPid, {already_added, Ip, Port, Hash}),
+            State
     end,
     {noreply, NewState};
 
 %
 %
-handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{buckets = Buckets, db_mod = DbMod}) ->
+handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{}) ->
+    #state{
+        buckets       = Buckets,
+        db_mod        = DbMod,
+        event_mgr_pid = EventMgrPid
+    } = State,
     NodesForSearch = case {Ip, Port} of
         {undefined, undefined} ->
             % First check in the local cache for a peer
             LocalPeers = find_local_peers_by_info_hash(InfoHash, State),
-            % @todo fire event with LocalPeers
+            ok = gen_event:notify(EventMgrPid, {peers, InfoHash, LocalPeers}),
             io:format("xxxxxx LocalPeers = ~p~n", [LocalPeers]),
             % Flatten all nodes in all buckets
             lists:foldl(fun (#bucket{nodes = Nodes}, NodesAcc) ->
@@ -352,9 +379,10 @@ handle_cast(_Request, State) ->
 %%--------------------------------------------------------------------
 handle_info({udp, Socket, Ip, Port, Response}, State) ->
     #state{
-        socket             = Socket,
-        my_node_hash       = MyNodeHash,
-        db_mod             = DbMod
+        socket        = Socket,
+        my_node_hash  = MyNodeHash,
+        db_mod        = DbMod,
+        event_mgr_pid = EventMgrPid
     } = State,
     {Bucket, ActiveTx} = case get_bucket_and_node(Ip, Port, State) of
         {ok, NodeBucket, #node{active_transactions = NodeActiveTx}} ->
@@ -452,7 +480,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
                         % Stop search and save info hashes
                         values ->
                             io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, NodesOrValues]),
-                            % @todo fire event
+                            ok = gen_event:notify(EventMgrPid, {peers, InfoHash, NodesOrValues}),
                             lists:foldl(fun (#{ip := FoundIp, port := FoundPort}, StateAcc) ->
                                 ok = add_node(FoundIp, FoundPort),
                                 add_peer(InfoHash, FoundIp, FoundPort, StateAcc)
@@ -467,7 +495,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
             update_node(Ip, Port, Params, NewState0);
         %
         % Handle announce_peer query
-        {ok, announce_peer, q, _Data, GotTxId} ->
+        {ok, announce_peer, q, _Data, _GotTxId} ->
             % @todo implement
             update_node(Ip, Port, [{last_changed, calendar:local_time()}], State);
         %

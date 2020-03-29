@@ -3,6 +3,7 @@ ErLine DHT
 
 - [Introduction](#introduction)
 - [Implementation details](#implementation_details)
+- [Events](#events)
 - [Status](#status)
 - [Tests](#tests)
 
@@ -20,6 +21,11 @@ Derivative project from https://github.com/bartima3us/erl-bittorrent
 * If during the check some `active` node last respond was more than 14 min ago - that node becomes `suspicious` and it is tried to ping one more time.
 * If during the check some `suspicious` node last respond was more than 15 min ago - that node becomes `not active`.
 * If node in the bucket becomes `not active`, it can be automatically replaced with `active` node from not assigned nodes list.
+
+## <a name="events">Events</a> ##
+
+* ```{peers, InfoHash :: binary(), LocalPeers :: [#{ip => inet:ip_address(), port => inet:port_number()}]}```
+* ```{already_added, Ip :: inet:ip_address(), Port :: inet:port_number(), Hash :: binary()}```
 
 ## <a name="status">Status</a> ##
 
