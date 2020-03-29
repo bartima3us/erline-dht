@@ -26,9 +26,6 @@
     parse_krpc_response/2
 ]).
 
-% @todo make option
--define(RECEIVE_TIMEOUT, 2000).
-
 
 %%%===================================================================
 %%% API
@@ -192,7 +189,7 @@ error_response(TransactionId, ErrorCode, ErrorDescription) when
 %%
 %%
 %%
-parse_krpc_response(Response, ActiveTx) ->
+parse_krpc_response(Response, ActiveTxs) ->
     ParseResponseFun = fun
         (ping, _TransactionId, Resp) ->
             {ok, NodeHash} = dict:find(<<"id">>, Resp),
@@ -212,7 +209,6 @@ parse_krpc_response(Response, ActiveTx) ->
             case dict:find(<<"values">>, Resp) of
                 {ok, {list, PeerInfoList}} ->
                     ParsedPeerInfoList = erline_dht_helper:parse_peer_info(PeerInfoList),
-                    % @todo return token too
                     {values, TransactionId, ParsedPeerInfoList, PeerToken};
                 error ->
                     case dict:find(<<"nodes">>, Resp) of
@@ -227,37 +223,37 @@ parse_krpc_response(Response, ActiveTx) ->
     case erline_dht_bencoding:decode(Response) of
         {ok, {dict, ResponseDict}} ->
             case dict:find(<<"t">>, ResponseDict) of
-                {ok, TransactionId} ->
+                {ok, TxId} ->
                     case dict:find(<<"y">>, ResponseDict) of
                         % Got query from node
                         {ok, <<"q">>} ->
                             case {dict:find(<<"q">>, ResponseDict), dict:find(<<"a">>, ResponseDict)} of
                                 {{ok, <<"ping">>}, {ok, {dict, Args}}} ->
                                     {ok, Hash} = dict:find(<<"id">>, Args),
-                                    {ok, ping, q, Hash, TransactionId};
+                                    {ok, ping, q, Hash, TxId};
                                 % @todo implement requests handling
                                 {{ok, <<"announce_peer">>}, {ok, {dict, Args}}} ->
-                                    {ok, announce_peer, q, <<>>, TransactionId};
+                                    {ok, announce_peer, q, <<>>, TxId};
                                 _ ->
                                     {error, {bad_query, ResponseDict}}
                             end;
                         % Got response from node
                         {ok, OtherY} ->
-                            case lists:keysearch(TransactionId, 2, ActiveTx) of
-                                {value, {ReqType, TransactionId}} ->
+                            case lists:keysearch(TxId, 2, ActiveTxs) of
+                                {value, ActiveTx = {ReqType, TxId}} ->
                                     case OtherY of
                                         <<"r">> ->
                                             {ok, {dict, R}} = dict:find(<<"r">>, ResponseDict),
-                                            NewActiveTx = ActiveTx -- [{ReqType, TransactionId}],
-                                            % @todo parse response not by ReqType but by actual response message
-                                            {ok, ReqType, r, ParseResponseFun(ReqType, TransactionId, R), NewActiveTx};
-                                        <<"e">> -> % @todo update tx ids?
+                                            {ok, ReqType, r, ParseResponseFun(ReqType, TxId, R), ActiveTxs -- [ActiveTx]};
+                                        <<"e">> ->
                                             % Example: {ok,{list,[202,<<"Server Error">>]}
                                             {ok, {list, E}} = dict:find(<<"e">>, ResponseDict),
-                                            {error, {krpc_error, E}}
+                                            {error, {krpc_error, E}, ActiveTxs -- [ActiveTx]};
+                                        BadType ->
+                                            {error, {bad_type, BadType}, ActiveTxs -- [ActiveTx]}
                                     end;
                                 false ->
-                                    {error, {non_existing_transaction, TransactionId}}
+                                    {error, {non_existing_tx, TxId}}
                             end
                     end;
                 error ->
