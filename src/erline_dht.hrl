@@ -30,6 +30,18 @@
     distance                            :: distance() % Denormalized field. Mapping: #node.distance = #bucket.distance.
 }).
 
+-record(get_peers_search, {
+    info_hash       :: binary(),
+    last_changed    :: calendar:datetime()
+}).
+
+-record(requested_node, {
+    ip_port         :: {inet:ip_address(), inet:port_number()},
+    transaction_id  :: tx_id(),
+    info_hash       :: binary()
+}).
+
+
 
 
 

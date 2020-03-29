@@ -63,24 +63,12 @@
     peers       = []    :: [{inet:ip_address(), inet:port_number()}]
 }).
 
--record(requested_peer, {
-    ip_port         :: {inet:ip_address(), inet:port_number()},
-    transaction_id  :: tx_id()
-}).
-
--record(get_peers_search, {
-    info_hash               :: binary(),
-    last_changed            :: calendar:datetime(),
-    requested_peers = []    :: [#requested_peer{}]
-}).
-
 -record(state, {
     my_node_hash                        :: binary(),
     socket                              :: port(),
     k                                   :: pos_integer(),
     buckets                     = []    :: [#bucket{}],
     info_hashes                 = []    :: [#info_hash{}],  % @todo persist?
-    get_peers_searches          = []    :: [#get_peers_search{}],
     get_peers_searches_timer            :: reference(),
     db_mod                              :: module()
 }).
@@ -194,7 +182,7 @@ init([K, MyNodeHash]) ->
         [NewBucket | AccBuckets]
     end, [], lists:seq(0, erlang:bit_size(MyNodeHash))),
     DbMod = erline_dht:get_env(db_mod, erline_dht_db_ets),
-    DbMod:init(),
+    ok = DbMod:init(),
     NewState = #state{
         socket                      = Socket,
         k                           = K,
@@ -307,7 +295,7 @@ handle_cast({add_node, Ip, Port, Hash}, State = #state{my_node_hash = MyNodeHash
 
 %
 %
-handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{buckets = Buckets}) ->
+handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{buckets = Buckets, db_mod = DbMod}) ->
     NodesForSearch = case {Ip, Port} of
         {undefined, undefined} ->
             % First check in the local cache for a peer
@@ -324,30 +312,27 @@ handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{buckets = Buckets}) 
             [Node]
     end,
     % Make get_peers requests
-    NewState = lists:foldl(fun (#node{ip_port = {Ip, Port}}, AccState) ->
-        {ok, TxId, NewState0} = do_get_peers_async(Ip, Port, InfoHash, AccState),
-        #state{get_peers_searches = CurrGetPeersSearches} = NewState0,
-        RequestedPeer = #requested_peer{ip_port = {Ip, Port}, transaction_id = TxId},
-        case lists:keysearch(InfoHash, #get_peers_search.info_hash, CurrGetPeersSearches) of
-            {value, CurrGetPeersSearch = #get_peers_search{requested_peers = CurrRequestedPeers}} ->
-                NewGetPeersSearch = CurrGetPeersSearch#get_peers_search{requested_peers = [RequestedPeer | CurrRequestedPeers]},
-                NewGetPeersSearches = lists:keyreplace(InfoHash, #get_peers_search.info_hash, CurrGetPeersSearches, NewGetPeersSearch),
-                NewState0#state{get_peers_searches = NewGetPeersSearches};
-            false ->
-                NewGetPeersSearch = #get_peers_search{
-                    info_hash       = InfoHash,
-                    last_changed    = calendar:local_time(),
-                    requested_peers = [RequestedPeer]
-                },
-                NewState0#state{get_peers_searches = [NewGetPeersSearch]}
-        end
+    NewState = lists:foldl(fun (#node{ip_port = {RequestedIp, RequestedPort}}, AccState) ->
+        {ok, TxId, NewState0} = do_get_peers_async(RequestedIp, RequestedPort, InfoHash, AccState),
+        GetPeersSearch = #get_peers_search{
+            info_hash       = InfoHash,
+            last_changed    = calendar:local_time()
+        },
+        RequestedNode = #requested_node{
+            ip_port         = {RequestedIp, RequestedPort},
+            transaction_id  = TxId,
+            info_hash       = InfoHash
+        },
+        true = DbMod:insert_to_get_peers_searches(GetPeersSearch),
+        true = DbMod:insert_to_requested_nodes(RequestedNode),
+        NewState0
     end, State, NodesForSearch),
     {noreply, NewState};
 
 %
 %
-handle_cast(get_peers_searches, State = #state{get_peers_searches = GetPeersSearches}) ->
-    io:format("xxxxxxxx GetPeersSearches=~p~n", [GetPeersSearches]),
+handle_cast(get_peers_searches, State = #state{db_mod = DbMod}) ->
+    io:format("xxxxxxxx GetPeersSearches=~p~n", [DbMod:get_all_get_peers_searches()]),
     {noreply, State};
 
 %
@@ -369,7 +354,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
     #state{
         socket             = Socket,
         my_node_hash       = MyNodeHash,
-        get_peers_searches = GetPeersSearches
+        db_mod             = DbMod
     } = State,
     NewState = case get_bucket_and_node(Ip, Port, State) of
         {ok, Bucket, #node{active_transactions = ActiveTx}} ->
@@ -379,7 +364,6 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
                 {ok, ping, q, NodeHash, GotTxId} ->
                     ok = erline_dht_message:respond_ping(Ip, Port, Socket, MyNodeHash, GotTxId),
                     ok = add_node(Ip, Port, NodeHash),
-%%                    io:format("Got ping query from {~p, ~p}, tx=~p!~n", [Ip, Port, GotTxId]),
                     State;
                 %
                 % Handle ping response
@@ -397,11 +381,9 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
                                     case CurrDist =:= NewDist of
                                         % If hash is the same, update node data
                                         true ->
-%%                                            io:format("Dist is the same. Dist=~p~n", [CurrDist]),
                                             update_node(Ip, Port, Params ++ [{active_transactions, NewActiveTx}], State);
                                          % If hash is changed, move node to another bucket
                                         false -> % todo: maybe_clear_bucket
-%%                                            io:format("Dist is changed. Dist=~p~n", [NewDist]),
                                             case maybe_clear_bucket(NewDist, State) of
                                                 {true, NewState0}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}, {active_transactions, NewActiveTx}], NewState0);
                                                 {false, NewState0} -> update_node(Ip, Port, Params ++ [unassign, {active_transactions, NewActiveTx}], NewState0)
@@ -410,9 +392,8 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
                                 % New node
                                 false ->
                                     NewState0 = update_node(Ip, Port, [{active_transactions, NewActiveTx}], State),
-%%                                    {ok, TargetHash} = erline_dht_helper:get_hash_of_distance(MyNodeHash, crypto:rand_uniform(1, erlang:bit_size(MyNodeHash))),
+                                    %{ok, TargetHash} = erline_dht_helper:get_hash_of_distance(MyNodeHash, crypto:rand_uniform(1, erlang:bit_size(MyNodeHash))),
                                     {ok, NewState1} = do_find_node_async(Ip, Port, MyNodeHash, NewState0),
-%%                                    io:format("New node=~p, Hash=~p, NewDist=~p~n", [{Ip, Port}, NewNodeHash, NewDist]),
                                     case maybe_clear_bucket(NewDist, NewState1) of
                                         {true, NewState2}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState2);
                                         % No place in the bucket. Add to buffer
@@ -443,56 +424,55 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
                 %
                 % Handle get_peers response
                 {ok, get_peers, r, {What, TxId, NodesOrValues, Token}, NewActiveTx} ->
-                    InfoHash = find_info_hash_by_tx_and_peer(TxId, Ip, Port, State),
                     % Update last changed
-                    {value, GetPeersSearch} = lists:keysearch(InfoHash, #get_peers_search.info_hash, GetPeersSearches),
-                    NewGetPeersSearch = GetPeersSearch#get_peers_search{last_changed = calendar:local_time()},
-                    NewState0 = State#state{get_peers_searches = lists:keyreplace(InfoHash, #get_peers_search.info_hash, GetPeersSearches, NewGetPeersSearch)},
-                    NewState1 = case What of
-                        % Continue search
-                        nodes ->
-                            ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
-                                case is_peer_already_requested(InfoHash, FoundIp, FoundPort, NewState0) of
-                                    true  ->
-                                        ok;
-                                    false ->
-                                        ok = add_node(FoundIp, FoundPort, FoundedHash),
-                                        ok = get_peers(FoundIp, FoundPort, InfoHash)
-                                end
-                            end, NodesOrValues),
-                            NewState0;
-                        % Stop search and save info hashes
-                        values ->
-                            io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, NodesOrValues]),
-                            % @todo fire event
-                            lists:foldl(fun (#{ip := FoundIp, port := FoundPort}, StateAcc) ->
-                                ok = add_node(FoundIp, FoundPort),
-                                add_peer(InfoHash, FoundIp, FoundPort, StateAcc)
-                            end, NewState0, NodesOrValues)
+                    NewState0 = case DbMod:get_info_hash(Ip, Port, TxId) of
+                        false ->
+                            ok = add_node(Ip, Port),
+                            State;
+                        InfoHash ->
+                            true = DbMod:insert_to_get_peers_searches(#get_peers_search{info_hash = InfoHash, last_changed = calendar:local_time()}),
+                            case What of
+                                % Continue search
+                                nodes ->
+                                    ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
+                                        case DbMod:get_requested_node(FoundIp, FoundPort, InfoHash) of
+                                            [_|_]  ->
+                                                ok;
+                                            [] ->
+                                                ok = add_node(FoundIp, FoundPort, FoundedHash),
+                                                ok = get_peers(FoundIp, FoundPort, InfoHash)
+                                        end
+                                    end, NodesOrValues),
+                                    State;
+                                % Stop search and save info hashes
+                                values ->
+                                    io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, NodesOrValues]),
+                                    % @todo fire event
+                                    lists:foldl(fun (#{ip := FoundIp, port := FoundPort}, StateAcc) ->
+                                        ok = add_node(FoundIp, FoundPort),
+                                        add_peer(InfoHash, FoundIp, FoundPort, StateAcc)
+                                    end, State, NodesOrValues)
+                            end
                     end,
                     Params = [
                         {token,               Token},
                         {last_changed,        calendar:local_time()},
                         {active_transactions, NewActiveTx}
                     ],
-                    update_node(Ip, Port, Params, NewState1);
+                    update_node(Ip, Port, Params, NewState0);
                 %
                 % Handle announce_peer query
                 {ok, announce_peer, q, _Data, GotTxId} ->
-%%                    io:format("XXXXXXXXXXXXX Got announce_peer query from {~p, ~p}, tx=~p!~n", [Ip, Port, GotTxId]),
                     State;
                 %
                 % Handle errors
-                {error, {krpc_error, Reason}} ->
-%%                    io:format("krpc_error=~p~n", [Reason]),
+                {error, {krpc_error, _Reason}} ->
                     State;
-                {error, {non_existing_transaction, TxId}} ->
-%%                    io:format("non_existing_transaction=~p | ~p~n", [{Ip, Port}, TxId]),
+                {error, {non_existing_transaction, _TxId}} ->
                     State;
                 {error, {bad_query, _BadQuery}} ->
                     State;
-                {error, {bad_response, BadResponse}} ->
-%%                    io:format("BadResponse=~p~n", [BadResponse]),
+                {error, {bad_response, _BadResponse}} ->
                     State
             end;
         false ->
@@ -524,7 +504,7 @@ handle_info({bucket_check, Distance}, State = #state{k = K, buckets = CurrBucket
     % Check if there are nodes which became not_active and try to replace them with K * 10 freshest nodes from not assigned nodes list
     NotAssignedNodes = lists:sort(fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
         LastChanged1 > LastChanged2
-    end, DbMod:get_not_assigned_nodes_by_distance(Distance)),
+    end, DbMod:get_not_assigned_nodes(Distance)),
     NewState2 = case BecomeNotActive of
         0 ->
             NewState1;
@@ -549,14 +529,17 @@ handle_info({bucket_ping, Distance}, State = #state{buckets = Buckets}) ->
 
 %
 %
-handle_info(get_peers_searches_check, State = #state{get_peers_searches = GetPeersSearches}) ->
-    NewGetPeersSearches = lists:filter(fun (#get_peers_search{last_changed = LastChanged}) ->
-        erline_dht_helper:datetime_diff(calendar:local_time(), LastChanged) < ?GET_PEERS_SEARCH_TTL
-    end, GetPeersSearches),
-    NewState = State#state{
-        get_peers_searches = NewGetPeersSearches,
-        get_peers_searches_timer = schedule_get_peers_searches_check()
-    },
+handle_info(get_peers_searches_check, State = #state{db_mod = DbMod}) ->
+    ok = lists:foreach(fun (#get_peers_search{info_hash = InfoHash, last_changed = LastChanged}) ->
+        case erline_dht_helper:datetime_diff(calendar:local_time(), LastChanged) < ?GET_PEERS_SEARCH_TTL of
+            true  ->
+                ok;
+            false ->
+                true = DbMod:delete_get_peers_search(InfoHash),
+                true = DbMod:delete_requested_nodes(InfoHash)
+        end
+    end, DbMod:get_all_get_peers_searches()),
+    NewState = State#state{get_peers_searches_timer = schedule_get_peers_searches_check()},
     {noreply, NewState}.
 
 
@@ -642,7 +625,7 @@ do_find_node_async(Ip, Port, Target, State = #state{socket = Socket, my_node_has
     State    :: #state{}
 ) -> {ok, TxId :: tx_id(), NewState :: #state{}}.
 
-do_get_peers_async(Ip, Port, InfoHash, State = #state{my_node_hash = MyNodeHash, socket = Socket, buckets = Buckets}) ->
+do_get_peers_async(Ip, Port, InfoHash, State = #state{my_node_hash = MyNodeHash, socket = Socket}) ->
     {ok, _Bucket, Node} = get_bucket_and_node(Ip, Port, State),
     #node{transaction_id = TxId, active_transactions = CurrActiveTx} = Node,
     Params = [
@@ -668,7 +651,7 @@ do_get_peers_async(Ip, Port, InfoHash, State = #state{my_node_hash = MyNodeHash,
 ) -> false | {ok, Bucket :: #bucket{} | false, Node :: #node{}}.
 
 get_bucket_and_node(Ip, Port, #state{buckets = Buckets, db_mod = DbMod}) ->
-    case DbMod:get_not_assigned_nodes_by_ip_and_port(Ip, Port) of
+    case DbMod:get_not_assigned_node(Ip, Port) of
         [Node] -> {ok, false, Node};
         []     -> get_bucket_and_node(Ip, Port, Buckets)
     end;
@@ -896,36 +879,6 @@ maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
 %%
 %%
 %%
--spec find_info_hash_by_tx_and_peer(
-    TxId    :: tx_id(),
-    Ip      :: inet:ip_address(),
-    Port    :: inet:port_number(),
-    State   :: #state{}
-) -> false | binary().
-
-find_info_hash_by_tx_and_peer(TxId, Ip, Port, #state{get_peers_searches = GetPeersSearches}) ->
-    find_info_hash_by_tx_and_peer(TxId, Ip, Port, GetPeersSearches);
-
-find_info_hash_by_tx_and_peer(_TxId, _Ip, _Port, []) ->
-    false;
-
-find_info_hash_by_tx_and_peer(TxId, Ip, Port, [GetPeersSearch = #get_peers_search{} | GetPeersSearches]) ->
-    #get_peers_search{info_hash = InfoHash, requested_peers = RequestedPeers} = GetPeersSearch,
-    case find_info_hash_by_tx_and_peer(TxId, Ip, Port, RequestedPeers) of
-        false -> find_info_hash_by_tx_and_peer(TxId, Ip, Port, GetPeersSearches);
-        true  -> InfoHash
-    end;
-
-find_info_hash_by_tx_and_peer(TxId, Ip, Port, [#requested_peer{ip_port = {Ip, Port}, transaction_id = TxId} | _]) ->
-    true;
-
-find_info_hash_by_tx_and_peer(TxId, Ip, Port, [#requested_peer{} | RequestedPeers]) ->
-    find_info_hash_by_tx_and_peer(TxId, Ip, Port, RequestedPeers).
-
-
-%%
-%%
-%%
 -spec find_local_peers_by_info_hash(
     InfoHash :: binary(),
     State    :: #state{}
@@ -965,24 +918,6 @@ add_peer(InfoHashBin, Ip, Port, State = #state{info_hashes = InfoHashes}) ->
         false ->
             NewInfoHash = #info_hash{info_hash = InfoHashBin, peers = [{Ip, Port}]},
             State#state{info_hashes = [NewInfoHash | InfoHashes]}
-    end.
-
-
-%%
-%%
-%%
--spec is_peer_already_requested(
-    InfoHash :: binary(),
-    Ip       :: inet:ip_address(),
-    Port     :: inet:port_number(),
-    State    :: #state{}
-) -> boolean().
-
-is_peer_already_requested(InfoHash, Ip, Port, #state{get_peers_searches = GetPeersSearches}) ->
-    {value, #get_peers_search{requested_peers = RequestedPeers}} = lists:keysearch(InfoHash, #get_peers_search.info_hash, GetPeersSearches),
-    case lists:keysearch({Ip, Port}, #requested_peer.ip_port, RequestedPeers) of
-        {value, _} -> true;
-        false      -> false
     end.
 
 
