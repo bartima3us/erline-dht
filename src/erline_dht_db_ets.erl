@@ -9,6 +9,7 @@
 -module(erline_dht_db_ets).
 -author("bartimaeus").
 -include("erline_dht.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 
 %% Common API
 -export([
@@ -21,7 +22,8 @@
     get_not_assigned_nodes/1,
     get_not_assigned_node/2,
     insert_to_not_assigned_nodes/1,
-    delete_from_not_assigned_nodes/2
+    delete_from_not_assigned_nodes_by_ip_port/2,
+    delete_from_not_assigned_nodes_by_dist_date/2
 ]).
 
 %% REQUESTED_NODES_TABLE API
@@ -112,13 +114,31 @@ insert_to_not_assigned_nodes(Node) ->
 %%
 %%
 %%
--spec delete_from_not_assigned_nodes(
+-spec delete_from_not_assigned_nodes_by_ip_port(
     Ip   :: inet:ip_address(),
     Port :: inet:port_number()
 ) -> true.
 
-delete_from_not_assigned_nodes(Ip, Port) ->
+delete_from_not_assigned_nodes_by_ip_port(Ip, Port) ->
     true = ets:match_delete(?NOT_ASSIGNED_NODES_TABLE, #node{ip_port = {Ip, Port}, _ = '_'}).
+
+
+%%
+%%
+%%
+delete_from_not_assigned_nodes_by_dist_date(Distance, Date) ->
+    MatchSpec = ets:fun2ms(fun
+        (#node{distance = NodeDist, last_changed = LastChanged}) when
+            NodeDist =:= Distance,
+            LastChanged =< Date
+            ->
+            true;
+        (#node{}) ->
+            false
+    end),
+    ets:select_delete(?NOT_ASSIGNED_NODES_TABLE, MatchSpec),
+    ok.
+
 
 % ------------------------------------------------------------------------
 % REQUESTED_NODES_TABLE

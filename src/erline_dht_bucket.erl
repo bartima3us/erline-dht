@@ -48,6 +48,9 @@
 -define(BUCKET_CHECK_LOW_TIME, 60000). % 1 min
 -define(BUCKET_CHECK_HIGH_TIME, 180000). % 3 min
 -define(GET_PEERS_SEARCH_CHECK_TIME, 60000). % 1 min
+-define(CLEAR_NOT_ASSIGNED_NODES_TIME, 60000). % 2 min
+-define(NOT_ACTIVE_NOT_ASSIGNED_NODES_TTL, 90). % 90 s
+-define(ACTIVE_NOT_ASSIGNED_NODES_TTL, 300). % 5 min
 -define(ACTIVE_TTL, 840). % 14 min
 -define(GET_PEERS_SEARCH_TTL, 120). % 2 min
 -define(SUSPICIOUS_TTL, 900). % 15 min (ACTIVE_TTL + 1 min)
@@ -71,8 +74,10 @@
     buckets                     = []    :: [#bucket{}],
     info_hashes                 = []    :: [#info_hash{}],  % @todo persist?
     get_peers_searches_timer            :: reference(),
+    clear_not_assigned_nodes_timer      :: reference(),
     db_mod                              :: module(),
-    event_mgr_pid                       :: pid()
+    event_mgr_pid                       :: pid(),
+    not_assigned_clearing_threshold     :: pos_integer() % Not assigned nodes
 }).
 
 %%%===================================================================
@@ -196,13 +201,15 @@ init([K, MyNodeHash]) ->
     ok = DbMod:init(),
     {ok, EventMgrPid} = gen_event:start_link(),
     NewState = #state{
-        socket                      = Socket,
-        k                           = K,
-        my_node_hash                = MyNodeHash,
-        buckets                     = lists:reverse(Buckets),
-        get_peers_searches_timer    = schedule_get_peers_searches_check(),
-        db_mod                      = DbMod,
-        event_mgr_pid               = EventMgrPid
+        socket                          = Socket,
+        k                               = K,
+        my_node_hash                    = MyNodeHash,
+        buckets                         = lists:reverse(Buckets),
+        get_peers_searches_timer        = schedule_get_peers_searches_check(),
+        clear_not_assigned_nodes_timer  = schedule_clear_not_assigned_nodes(),
+        db_mod                          = DbMod,
+        event_mgr_pid                   = EventMgrPid,
+        not_assigned_clearing_threshold = K * 100
     },
     % Bootstrap
     AddBootstrapNodeFun = fun
@@ -290,8 +297,7 @@ handle_call(_Request, _From, State) ->
 handle_cast({add_node, Ip, Port, Hash}, State = #state{}) ->
     #state{
         my_node_hash  = MyNodeHash,
-        db_mod        = DbMod,
-        event_mgr_pid = EventMgrPid
+        db_mod        = DbMod
     } = State,
     NewState = case get_bucket_and_node(Ip, Port, State) of
         false ->
@@ -305,12 +311,16 @@ handle_cast({add_node, Ip, Port, Hash}, State = #state{}) ->
                         {error, _Reason} -> undefined
                     end
             end,
-            NewNode = #node{ip_port = {Ip, Port}, hash = Hash, distance = Distance},
+            NewNode = #node{
+                ip_port      = {Ip, Port},
+                hash         = Hash,
+                distance     = Distance,
+                last_changed = calendar:local_time()
+            },
             true = DbMod:insert_to_not_assigned_nodes(NewNode),
             {ok, NewState0} = do_ping_async(Ip, Port, State),
             NewState0;
         {ok, _Bucket, #node{}} ->
-            ok = gen_event:notify(EventMgrPid, {already_added, Ip, Port, Hash}),
             State
     end,
     {noreply, NewState};
@@ -579,6 +589,31 @@ handle_info(get_peers_searches_check, State = #state{db_mod = DbMod}) ->
         end
     end, DbMod:get_all_get_peers_searches()),
     NewState = State#state{get_peers_searches_timer = schedule_get_peers_searches_check()},
+    {noreply, NewState};
+
+%
+%
+handle_info(clear_not_assigned_nodes, State = #state{}) ->
+    #state{
+        my_node_hash                    = MyNodeHash,
+        db_mod                          = DbMod,
+        not_assigned_clearing_threshold = Threshold
+    } = State,
+    % Delete without distance
+    TTLNotActiveDate = erline_dht_helper:change_datetime(calendar:local_time(), ?NOT_ACTIVE_NOT_ASSIGNED_NODES_TTL),
+    ok = DbMod:delete_from_not_assigned_nodes_by_dist_date(undefined, TTLNotActiveDate),
+    % Delete with distance
+    TTLActiveDate = erline_dht_helper:change_datetime(calendar:local_time(), ?ACTIVE_NOT_ASSIGNED_NODES_TTL),
+    ok = lists:foreach(fun (Distance) ->
+        % @todo working too slow
+        case erlang:length(DbMod:get_not_assigned_nodes(Distance)) of
+            NodesNum when NodesNum > Threshold ->
+                ok = DbMod:delete_from_not_assigned_nodes_by_dist_date(Distance, TTLActiveDate);
+            _ ->
+                ok
+        end
+    end, lists:seq(0, erlang:bit_size(MyNodeHash))),
+    NewState = State#state{clear_not_assigned_nodes_timer = schedule_clear_not_assigned_nodes()},
     {noreply, NewState}.
 
 
@@ -797,7 +832,7 @@ update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets 
             case lists:keysearch(assign, 1, Params) of
                 % Assign updated node to the bucket if there is assign param
                 {value, {assign, NewDist}} ->
-                    true = DbMod:delete_from_not_assigned_nodes(Ip, Port),
+                    true = DbMod:delete_from_not_assigned_nodes_by_ip_port(Ip, Port),
                     NewBuckets = AddNodeToBucketFun(NewDist),
                     State#state{buckets = NewBuckets};
                 % Just put updated node in the not assigned nodes list
@@ -862,6 +897,15 @@ schedule_bucket_ping(Distance) ->
 
 schedule_get_peers_searches_check() ->
     erlang:send_after(?GET_PEERS_SEARCH_CHECK_TIME, self(), get_peers_searches_check).
+
+
+%%
+%%
+%%
+-spec schedule_clear_not_assigned_nodes() -> reference().
+
+schedule_clear_not_assigned_nodes() ->
+    erlang:send_after(?CLEAR_NOT_ASSIGNED_NODES_TIME, self(), clear_not_assigned_nodes).
 
 
 %%
@@ -958,5 +1002,51 @@ add_peer(InfoHashBin, Ip, Port, State = #state{info_hashes = InfoHashes}) ->
             NewInfoHash = #info_hash{info_hash = InfoHashBin, peers = [{Ip, Port}]},
             State#state{info_hashes = [NewInfoHash | InfoHashes]}
     end.
+
+
+%%%%
+%%%%
+%%%%
+%%-spec is_enough_space_for_node(
+%%    Node    :: #node{},
+%%    State   :: #state{}
+%%) -> {boolean(), boolean()}.
+%%
+%%is_enough_space_for_node(#node{distance = Distance}, State = #state{}) ->
+%%    #state{
+%%        db_mod                  = DbMod,
+%%        k                       = K,
+%%        buckets                 = Buckets,
+%%        max_nodes_for_distance  = MaxNodes
+%%    } = State,
+%%    IsEnoughSpaceInBucket = case Distance of
+%%        undefined ->
+%%            true;
+%%        _ ->
+%%            {value, #bucket{nodes = NodesInBucket}} = lists:keysearch(Distance, #bucket.distance, Buckets),
+%%            (erlang:length(NodesInBucket) < K)
+%%    end,
+%%    IsEnoughSpaceInNotAssigned = (erlang:length(DbMod:get_not_assigned_nodes(Distance)) < MaxNodes),
+%%    (IsEnoughSpaceInBucket orelse IsEnoughSpaceInNotAssigned).
+%%
+%%
+%%
+%%%%
+%%%%
+%%%%
+%%-spec safe_insert_to_not_assigned_nodes(
+%%    Node    :: #node{},
+%%    State   :: #state{}
+%%) -> ok.
+%%
+%%safe_insert_to_not_assigned_nodes(Node, #state{db_mod = DbMod, max_nodes_for_distance = MaxNodes}) ->
+%%    #node{distance = Distance} = Node,
+%%    case erlang:length(DbMod:get_not_assigned_nodes(Distance)) of
+%%        CurrNum when CurrNum < MaxNodes ->
+%%            true = DbMod:insert_to_not_assigned_nodes(Node),
+%%            ok;
+%%        _CurrNum ->
+%%            ok
+%%    end.
 
 

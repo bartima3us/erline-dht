@@ -15,7 +15,8 @@
     get_hash_of_distance/2,
     parse_compact_node_info/1,
     parse_peer_info/1,
-    datetime_diff/2
+    datetime_diff/2,
+    change_datetime/2
 ]).
 
 
@@ -115,5 +116,13 @@ parse_peer_info([<<Ip:4/binary, Port:2/binary>> | PeerInfoList], Result) ->
 %%
 datetime_diff(DateTime1, DateTime2) ->
     calendar:datetime_to_gregorian_seconds(DateTime1) - calendar:datetime_to_gregorian_seconds(DateTime2).
+
+
+%%
+%%
+%%
+change_datetime(DateTime, Seconds) ->
+    calendar:gregorian_seconds_to_datetime(calendar:datetime_to_gregorian_seconds(DateTime) - Seconds).
+
 
 

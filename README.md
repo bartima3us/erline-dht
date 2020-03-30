@@ -25,7 +25,6 @@ Derivative project from https://github.com/bartima3us/erl-bittorrent
 ## <a name="events">Events</a> ##
 
 * ```{peers, InfoHash :: binary(), LocalPeers :: [#{ip => inet:ip_address(), port => inet:port_number()}]}```
-* ```{already_added, Ip :: inet:ip_address(), Port :: inet:port_number(), Hash :: binary()}```
 
 ## <a name="status">Status</a> ##
 
