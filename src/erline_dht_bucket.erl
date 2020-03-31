@@ -200,13 +200,17 @@ init([K, MyNodeHash]) ->
     DbMod = erline_dht:get_env(db_mod, erline_dht_db_ets),
     ok = DbMod:init(),
     {ok, EventMgrPid} = gen_event:start_link(),
+    ClearNotAssignedRef = case erline_dht:get_env(limit_nodes, true) of
+        true  -> schedule_clear_not_assigned_nodes();
+        false -> undefined
+    end,
     NewState = #state{
         socket                          = Socket,
         k                               = K,
         my_node_hash                    = MyNodeHash,
         buckets                         = lists:reverse(Buckets),
         get_peers_searches_timer        = schedule_get_peers_searches_check(),
-        clear_not_assigned_nodes_timer  = schedule_clear_not_assigned_nodes(),
+        clear_not_assigned_nodes_timer  = ClearNotAssignedRef,
         db_mod                          = DbMod,
         event_mgr_pid                   = EventMgrPid,
         not_assigned_clearing_threshold = K * 100
@@ -597,18 +601,30 @@ handle_info(clear_not_assigned_nodes, State = #state{}) ->
         not_assigned_clearing_threshold = Threshold
     } = State,
     % Delete without distance
-    TTLNotActiveDate = erline_dht_helper:change_datetime(calendar:local_time(), ?NOT_ACTIVE_NOT_ASSIGNED_NODES_TTL),
-    ok = DbMod:delete_from_not_assigned_nodes_by_dist_date(undefined, TTLNotActiveDate),
+    TTLNotActiveDt = erline_dht_helper:change_datetime(calendar:local_time(), ?NOT_ACTIVE_NOT_ASSIGNED_NODES_TTL),
+    erlang:spawn(fun () ->
+        ok = DbMod:delete_from_not_assigned_nodes_by_dist_date(undefined, TTLNotActiveDt)
+    end),
     % Delete with distance
-    TTLActiveDate = erline_dht_helper:change_datetime(calendar:local_time(), ?ACTIVE_NOT_ASSIGNED_NODES_TTL),
+    TTLActiveDt = erline_dht_helper:change_datetime(calendar:local_time(), ?ACTIVE_NOT_ASSIGNED_NODES_TTL),
     ok = lists:foreach(fun (Distance) ->
-        % @todo working too slow
-        case erlang:length(DbMod:get_not_assigned_nodes(Distance)) of
-            NodesNum when NodesNum > Threshold ->
-                ok = DbMod:delete_from_not_assigned_nodes_by_dist_date(Distance, TTLActiveDate);
-            _ ->
-                ok
-        end
+        erlang:spawn(fun () ->
+            case DbMod:get_not_assigned_nodes(Distance) of
+                Nodes when length(Nodes) > Threshold ->
+                    SortedNodes = lists:sort(fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
+                        LastChanged1 >= LastChanged2
+                    end, Nodes),
+                    {_, NodesToRemove} = lists:split(Threshold, SortedNodes),
+                    ok = lists:foreach(fun (#node{ip_port = {Ip, Port}, last_changed = LastChanged}) ->
+                        true = case LastChanged =< TTLActiveDt of
+                            true  -> DbMod:delete_from_not_assigned_nodes_by_ip_port(Ip, Port);
+                            false -> true
+                        end
+                    end, NodesToRemove);
+                _ ->
+                    ok
+            end
+        end)
     end, lists:seq(0, erlang:bit_size(MyNodeHash))),
     NewState = State#state{clear_not_assigned_nodes_timer = schedule_clear_not_assigned_nodes()},
     {noreply, NewState}.

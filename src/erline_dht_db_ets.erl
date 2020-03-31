@@ -59,7 +59,7 @@ init() ->
     % 'compressed' - trade-off. Example with 200k nodes (not compressed vs compressed):
     % Read performance: 7 microseconds vs 13 microseconds;
     % RAM consumption: 618 MB vs 266 MB
-    ?NOT_ASSIGNED_NODES_TABLE = ets:new(?NOT_ASSIGNED_NODES_TABLE, [set, named_table, compressed, {keypos, #node.ip_port}]),
+    ?NOT_ASSIGNED_NODES_TABLE = ets:new(?NOT_ASSIGNED_NODES_TABLE, [set, named_table, compressed, public, {keypos, #node.ip_port}]),
     ?REQUESTED_NODES_TABLE    = ets:new(?REQUESTED_NODES_TABLE, [set, named_table, {keypos, #requested_node.ip_port}]),
     ?GET_PEERS_SEARCHES_TABLE = ets:new(?GET_PEERS_SEARCHES_TABLE, [set, named_table, {keypos, #get_peers_search.info_hash}]),
     ok.
