@@ -222,9 +222,6 @@ init([K, MyNodeHash]) ->
             ok = add_node(Ip, Port)
     end,
     ok = lists:foreach(fun ({AutoBootstrapNode, Port}) ->
-        ok = AddBootstrapNodeFun(AutoBootstrapNode, Port),
-        ok = AddBootstrapNodeFun(AutoBootstrapNode, Port),
-        ok = AddBootstrapNodeFun(AutoBootstrapNode, Port),
         ok = AddBootstrapNodeFun(AutoBootstrapNode, Port)
     end, erline_dht:get_env(auto_bootstrap_nodes, [])),
     {ok, NewState}.
