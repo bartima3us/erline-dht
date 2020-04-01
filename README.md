@@ -9,7 +9,7 @@ ErLine DHT
 
 ## <a name="introduction">Introduction</a> ##
 
-Kademlia based Mainline DHT implementation in Erlang.<br/>
+Kademlia based Mainline DHT (BEP5: https://www.bittorrent.org/beps/bep_0005.html) implementation in Erlang.<br/>
 Derivative project from https://github.com/bartima3us/erl-bittorrent
 
 ## <a name="implementation_details">Implementation details</a> ##

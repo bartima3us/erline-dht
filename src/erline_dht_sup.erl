@@ -31,7 +31,7 @@ start_link() ->
 init([]) ->
     BucketSpec = #{
         id          => erline_dht_bucket,
-        start       => {erline_dht_bucket, start_link, [?K, ?MY_NODE_ID]},
+        start       => {erline_dht_bucket, start_link, [?MY_NODE_ID]},
         restart     => temporary,
         shutdown    => 5000,
         type        => worker,

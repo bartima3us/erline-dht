@@ -14,7 +14,7 @@
 
 %% API
 -export([
-    start_link/2,
+    start_link/1,
     add_node/2,
     add_node/3,
     get_peers/1,
@@ -91,13 +91,12 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec(start_link(
-    K :: pos_integer(),
     MyNodeHash :: binary()
 ) ->
     {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 
-start_link(K, MyNodeHash) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [K, MyNodeHash], []).
+start_link(MyNodeHash) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [MyNodeHash], []).
 
 
 %%
@@ -187,7 +186,7 @@ get_peers_searches() ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([K, MyNodeHash]) ->
+init([MyNodeHash]) ->
     {ok, Socket} = gen_udp:open(0, [binary, {active, true}]),
     Buckets = lists:foldl(fun (Distance, AccBuckets) ->
         NewBucket = #bucket{
@@ -204,6 +203,7 @@ init([K, MyNodeHash]) ->
         true  -> schedule_clear_not_assigned_nodes();
         false -> undefined
     end,
+    K = erline_dht:get_env(k, 8),
     NewState = #state{
         socket                          = Socket,
         k                               = K,
