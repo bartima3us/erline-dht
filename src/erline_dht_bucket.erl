@@ -534,37 +534,9 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
 
 %
 %
-handle_info({bucket_check, Distance}, State = #state{k = K, buckets = CurrBuckets, db_mod = DbMod}) ->
-    {value, #bucket{nodes = Nodes}} = lists:keysearch(Distance, #bucket.distance, CurrBuckets),
-    {NewState0, BecomeNotActive} = lists:foldl(fun (Node, {CurrAccState, BecomeNotActiveAcc}) ->
-        #node{ip_port = {Ip, Port}, last_changed = LastChanged, status = Status} = Node,
-        case erline_dht_helper:datetime_diff(calendar:local_time(), LastChanged) of
-            SecondsTillLastChanged when SecondsTillLastChanged > ?ACTIVE_TTL, Status =:= active ->
-                CurrAccState0 = update_node(Ip, Port, [{status, suspicious}], CurrAccState),
-                % Try to ping once again
-                {ok, NewAccState} = do_ping_async(Ip, Port, CurrAccState0),
-                {NewAccState, BecomeNotActiveAcc};
-            SecondsTillLastChanged when SecondsTillLastChanged > ?SUSPICIOUS_TTL, Status =:= suspicious ->
-                {update_node(Ip, Port, [{status, not_active}], CurrAccState), BecomeNotActiveAcc + 1};
-            _SecondsTillLastChanged ->
-                {CurrAccState, BecomeNotActiveAcc}
-        end
-    end, {State, 0}, Nodes),
-    NewState1 = update_bucket(Distance, [check_timer], NewState0),
-    % Check if there are nodes which became not_active and try to replace them with K * 10 freshest nodes from not assigned nodes list
-    NotAssignedNodes = lists:sort(fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
-        LastChanged1 > LastChanged2
-    end, DbMod:get_not_assigned_nodes(Distance)),
-    NewState2 = case BecomeNotActive of
-        0 ->
-            NewState1;
-        _ ->
-            lists:foldl(fun (#node{ip_port = {Ip, Port}}, CurrAccState) ->
-                {ok, NewAccState} = do_ping_async(Ip, Port, CurrAccState),
-                NewAccState
-            end, NewState1, lists:sublist(NotAssignedNodes, K * 10))
-    end,
-    {noreply, NewState2};
+handle_info({bucket_check, Distance}, State = #state{}) ->
+    NewState = clear_bucket(Distance, State),
+    {noreply, NewState};
 
 %
 %
@@ -579,51 +551,22 @@ handle_info({bucket_ping, Distance}, State = #state{buckets = Buckets}) ->
 
 %
 %
-handle_info(get_peers_searches_check, State = #state{db_mod = DbMod}) ->
-    ok = lists:foreach(fun (#get_peers_search{info_hash = InfoHash, last_changed = LastChanged}) ->
-        case erline_dht_helper:datetime_diff(calendar:local_time(), LastChanged) < ?GET_PEERS_SEARCH_TTL of
-            true  ->
-                ok;
-            false ->
-                true = DbMod:delete_get_peers_search(InfoHash),
-                true = DbMod:delete_requested_nodes(InfoHash)
-        end
-    end, DbMod:get_all_get_peers_searches()),
+handle_info(get_peers_searches_check, State = #state{}) ->
+    ok = clear_peers_searches(State),
     NewState = State#state{get_peers_searches_timer = schedule_get_peers_searches_check()},
     {noreply, NewState};
 
 %
 %
-handle_info(clear_not_assigned_nodes, State = #state{}) ->
-    #state{
-        my_node_hash                    = MyNodeHash,
-        db_mod                          = DbMod,
-        not_assigned_clearing_threshold = Threshold
-    } = State,
+handle_info(clear_not_assigned_nodes, State = #state{my_node_hash = MyNodeHash}) ->
     % Delete without distance
-    TTLNotActiveDt = erline_dht_helper:change_datetime(calendar:local_time(), ?NOT_ACTIVE_NOT_ASSIGNED_NODES_TTL),
     erlang:spawn(fun () ->
-        ok = DbMod:delete_from_not_assigned_nodes_by_dist_date(undefined, TTLNotActiveDt)
+        ok = clear_not_assigned_nodes(State)
     end),
     % Delete with distance
-    TTLActiveDt = erline_dht_helper:change_datetime(calendar:local_time(), ?ACTIVE_NOT_ASSIGNED_NODES_TTL),
     ok = lists:foreach(fun (Distance) ->
         erlang:spawn(fun () ->
-            case DbMod:get_not_assigned_nodes(Distance) of
-                Nodes when length(Nodes) > Threshold ->
-                    SortedNodes = lists:sort(fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
-                        LastChanged1 >= LastChanged2
-                    end, Nodes),
-                    {_, NodesToRemove} = lists:split(Threshold, SortedNodes),
-                    ok = lists:foreach(fun (#node{ip_port = {Ip, Port}, last_changed = LastChanged}) ->
-                        true = case LastChanged =< TTLActiveDt of
-                            true  -> DbMod:delete_from_not_assigned_nodes_by_ip_port(Ip, Port);
-                            false -> true
-                        end
-                    end, NodesToRemove);
-                _ ->
-                    ok
-            end
+            ok = clear_not_assigned_nodes(Distance, State)
         end)
     end, lists:seq(0, erlang:bit_size(MyNodeHash))),
     NewState = State#state{clear_not_assigned_nodes_timer = schedule_clear_not_assigned_nodes()},
@@ -1062,4 +1005,101 @@ add_peer(InfoHashBin, Ip, Port, State = #state{info_hashes = InfoHashes}) ->
 %%            ok
 %%    end.
 
+
+%%
+%%
+%%
+-spec clear_peers_searches(
+    State :: #state{}
+) -> ok.
+
+clear_peers_searches(#state{db_mod = DbMod}) ->
+    ok = lists:foreach(fun (#get_peers_search{info_hash = InfoHash, last_changed = LastChanged}) ->
+        case erline_dht_helper:datetime_diff(calendar:local_time(), LastChanged) < ?GET_PEERS_SEARCH_TTL of
+            true  ->
+                ok;
+            false ->
+                true = DbMod:delete_get_peers_search(InfoHash),
+                true = DbMod:delete_requested_nodes(InfoHash)
+        end
+    end, DbMod:get_all_get_peers_searches()).
+
+
+%%
+%%
+%%
+-spec clear_bucket(
+    Distance :: distance(),
+    State    :: #state{}
+) -> NewState :: #state{}.
+
+clear_bucket(Distance, State = #state{k = K, buckets = CurrBuckets, db_mod = DbMod}) ->
+    {value, #bucket{nodes = Nodes}} = lists:keysearch(Distance, #bucket.distance, CurrBuckets),
+    {NewState0, BecomeNotActive} = lists:foldl(fun (Node, {CurrAccState, BecomeNotActiveAcc}) ->
+        #node{ip_port = {Ip, Port}, last_changed = LastChanged, status = Status} = Node,
+        case erline_dht_helper:datetime_diff(calendar:local_time(), LastChanged) of
+            SecondsTillLastChanged when SecondsTillLastChanged > ?ACTIVE_TTL, Status =:= active ->
+                CurrAccState0 = update_node(Ip, Port, [{status, suspicious}], CurrAccState),
+                % Try to ping once again
+                {ok, NewAccState} = do_ping_async(Ip, Port, CurrAccState0),
+                {NewAccState, BecomeNotActiveAcc};
+            SecondsTillLastChanged when SecondsTillLastChanged > ?SUSPICIOUS_TTL, Status =:= suspicious ->
+                {update_node(Ip, Port, [{status, not_active}], CurrAccState), BecomeNotActiveAcc + 1};
+            _SecondsTillLastChanged ->
+                {CurrAccState, BecomeNotActiveAcc}
+        end
+    end, {State, 0}, Nodes),
+    NewState = update_bucket(Distance, [check_timer], NewState0),
+    % Check if there are nodes which became not_active and try to replace them with K * 10 freshest nodes from not assigned nodes list
+    NotAssignedNodes = lists:sort(fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
+        LastChanged1 > LastChanged2
+    end, DbMod:get_not_assigned_nodes(Distance)),
+    case BecomeNotActive of
+        0 ->
+            NewState;
+        _ ->
+            lists:foldl(fun (#node{ip_port = {Ip, Port}}, CurrAccState) ->
+                {ok, NewAccState} = do_ping_async(Ip, Port, CurrAccState),
+                NewAccState
+            end, NewState, lists:sublist(NotAssignedNodes, K * 10))
+    end.
+
+
+%%
+%%
+%%
+-spec clear_not_assigned_nodes(
+    State :: #state{}
+) -> ok.
+
+clear_not_assigned_nodes(#state{db_mod = DbMod}) ->
+    Dt = erline_dht_helper:change_datetime(calendar:local_time(), ?NOT_ACTIVE_NOT_ASSIGNED_NODES_TTL),
+    ok = DbMod:delete_from_not_assigned_nodes_by_dist_date(undefined, Dt).
+
+
+%%
+%%
+%%
+-spec clear_not_assigned_nodes(
+    Distance :: distance(),
+    State    :: #state{}
+) -> ok.
+
+clear_not_assigned_nodes(Distance, #state{db_mod = DbMod, not_assigned_clearing_threshold = Threshold}) ->
+    Dt = erline_dht_helper:change_datetime(calendar:local_time(), ?ACTIVE_NOT_ASSIGNED_NODES_TTL),
+    case DbMod:get_not_assigned_nodes(Distance) of
+        Nodes when length(Nodes) > Threshold ->
+            SortedNodes = lists:sort(fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
+                LastChanged1 >= LastChanged2
+            end, Nodes),
+            {_, NodesToRemove} = lists:split(Threshold, SortedNodes),
+            ok = lists:foreach(fun (#node{ip_port = {Ip, Port}, last_changed = LastChanged}) ->
+                true = case LastChanged =< Dt of
+                    true  -> DbMod:delete_from_not_assigned_nodes_by_ip_port(Ip, Port);
+                    false -> true
+                end
+            end, NodesToRemove);
+        _ ->
+            ok
+    end.
 
