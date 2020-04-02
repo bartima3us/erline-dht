@@ -63,7 +63,7 @@ get_distance(<<Hash:1/binary, _HashRest/binary>>, <<NodeHash:1/binary, _NodeHash
 
 %%  @doc
 %%  Get a new hash of the specified distance by the specified hash.
-%%
+%%  @todo not used anymore?
 get_hash_of_distance(Hash, _Distance) when not is_binary(Hash) ->
     {error, {malformed_hash, Hash}};
 

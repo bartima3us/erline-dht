@@ -609,7 +609,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 
 %%
-%%
+%%  @todo test
 %%
 -spec do_ping_async(
     Ip      :: inet:ip_address(),
@@ -630,7 +630,7 @@ do_ping_async(Ip, Port, State = #state{my_node_hash = MyNodeHash, socket = Socke
 
 
 %%
-%%
+%%  @todo test
 %%
 -spec do_find_node_async(
     Ip      :: inet:ip_address(),
@@ -652,7 +652,7 @@ do_find_node_async(Ip, Port, Target, State = #state{socket = Socket, my_node_has
 
 
 %%
-%%
+%%  @todo test
 %%
 -spec do_get_peers_async(
     Ip       :: inet:ip_address(),
@@ -678,7 +678,7 @@ do_get_peers_async(Ip, Port, InfoHash, State = #state{my_node_hash = MyNodeHash,
 %%%===================================================================
 
 %%
-%%
+%%  @todo test
 %%
 -spec get_bucket_and_node(
     Ip      :: inet:ip_address(),
@@ -722,7 +722,7 @@ update_transaction_id(Node = #node{transaction_id = LastTransactionIdBin}) ->
 
 
 %%
-%%
+%%  @todo test
 %%
 -spec update_node(
     Ip      :: inet:ip_address(),
@@ -806,7 +806,7 @@ update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets 
 
 
 %%
-%%
+%%  @todo test
 %%
 -spec update_bucket(
     Distance    :: distance(),
@@ -829,7 +829,7 @@ update_bucket(Distance, Params, State = #state{buckets = Buckets}) ->
     State#state{buckets = lists:keyreplace(Distance, #bucket.distance, Buckets, NewBucket)}.
 
 %%
-%%
+%%  @todo test
 %%
 -spec schedule_bucket_check(
     Distance :: distance()
@@ -841,7 +841,7 @@ schedule_bucket_check(Distance) ->
 
 
 %%
-%%
+%%  @todo test
 %%
 -spec schedule_bucket_ping(
     Distance :: distance()
@@ -853,7 +853,7 @@ schedule_bucket_ping(Distance) ->
 
 
 %%
-%%
+%%  @todo test
 %%
 -spec schedule_get_peers_searches_check() -> reference().
 
@@ -862,7 +862,7 @@ schedule_get_peers_searches_check() ->
 
 
 %%
-%%
+%%  @todo test
 %%
 -spec schedule_clear_not_assigned_nodes() -> reference().
 
@@ -871,7 +871,7 @@ schedule_clear_not_assigned_nodes() ->
 
 
 %%
-%%
+%%  @todo test
 %%
 -spec maybe_clear_bucket(
     Distance :: distance(),
@@ -922,7 +922,7 @@ maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
 
 
 %%
-%%
+%%  @todo test
 %%
 -spec find_local_peers_by_info_hash(
     InfoHash :: binary(),
@@ -941,7 +941,7 @@ find_local_peers_by_info_hash(InfoHash, #state{info_hashes = InfoHashes}) ->
 
 
 %%
-%%
+%%  @todo test
 %%
 -spec add_peer(
     InfoHashBin :: binary(),
@@ -1013,7 +1013,7 @@ add_peer(InfoHashBin, Ip, Port, State = #state{info_hashes = InfoHashes}) ->
 
 
 %%
-%%
+%%  @todo test
 %%
 -spec clear_peers_searches(
     State :: #state{}
@@ -1032,7 +1032,7 @@ clear_peers_searches(#state{db_mod = DbMod}) ->
 
 
 %%
-%%
+%%  @todo test
 %%
 -spec clear_bucket(
     Distance :: distance(),
@@ -1072,7 +1072,7 @@ clear_bucket(Distance, State = #state{k = K, buckets = CurrBuckets, db_mod = DbM
 
 
 %%
-%%
+%%  @todo test
 %%
 -spec clear_not_assigned_nodes(
     State :: #state{}
@@ -1084,7 +1084,7 @@ clear_not_assigned_nodes(#state{db_mod = DbMod}) ->
 
 
 %%
-%%
+%%  @todo test
 %%
 -spec clear_not_assigned_nodes(
     Distance :: distance(),
@@ -1108,4 +1108,5 @@ clear_not_assigned_nodes(Distance, #state{db_mod = DbMod, not_assigned_clearing_
         _ ->
             ok
     end.
+
 
