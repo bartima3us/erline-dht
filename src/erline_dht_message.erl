@@ -308,10 +308,15 @@ krpc_request(TransactionId, Type = <<"e">>, Error = [_Code, _Description]) ->
 %%
 socket_send(Socket, Ip, Port, Payload) ->
     case gen_udp:send(Socket, Ip, Port, Payload) of
-        ok              -> ok;
-        {error, einval} -> ok; % Ip or port can be malformed
-        {error, eagain} -> ok  % @todo ???
-        % @todo handle {error, enetunreach} ?
+        ok ->
+            ok;
+        {error, einval} ->
+            ok; % Ip or port can be malformed
+        {error, eagain} ->
+            ok;  % @todo ???
+        {error, enetunreach} -> % @todo is this correct a way to handle network disconnections?
+            timer:sleep(5000),
+            socket_send(Socket, Ip, Port, Payload)
     end.
 
 
