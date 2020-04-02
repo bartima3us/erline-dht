@@ -10,18 +10,21 @@
 -author("bartimaeus").
 -include_lib("eunit/include/eunit.hrl").
 
--record(node, {
-    ip                              :: inet:ip_address(),
-    port                            :: inet:port_number(),
-    hash                            :: binary(),
-    last_changed                    :: calendar:datetime(),
-    transaction_id      = <<0,0>>   :: binary(),
-    active_transactions = []        :: [binary()]
-}).
+-type status()      :: suspicious | active | not_active.
+-type request()     :: ping | find_node | get_peers | announce.
+-type tx_id()       :: binary().
+-type active_tx()   :: {request(), tx_id()}.
+-type distance()    :: 0..160.
 
--record(state, {
-    nodes           = []    :: [#node{}],
-    last_changed            :: calendar:datetime()
+-record(node, {
+    ip_port                             :: {inet:ip_address(), inet:port_number()},
+    hash                                :: binary(),
+    token                               :: binary(),
+    last_changed                        :: calendar:datetime(),
+    transaction_id      = <<0,0>>       :: tx_id(),
+    active_transactions = []            :: [{request(), tx_id()}],
+    status              = suspicious    :: status(),
+    distance                            :: distance()
 }).
 
 
@@ -36,24 +39,24 @@ update_transaction_id_test_() ->
         [{"First transaction ID.",
             fun() ->
                 ?assertEqual(
-                    #state{transaction_id = <<0,1>>},
-                    erline_dht_bucket:update_transaction_id(#state{})
+                    #node{transaction_id = <<0,1>>},
+                    erline_dht_bucket:update_transaction_id(#node{})
                 )
             end
         },
         {"Last transaction ID.",
             fun() ->
                 ?assertEqual(
-                    #state{transaction_id = <<0,0>>},
-                    erline_dht_bucket:update_transaction_id(#state{transaction_id = <<255,255>>})
+                    #node{transaction_id = <<0,0>>},
+                    erline_dht_bucket:update_transaction_id(#node{transaction_id = <<255,255>>})
                 )
             end
         },
         {"Usual transaction ID.",
             fun() ->
                 ?assertEqual(
-                    #state{transaction_id = <<12,141>>},
-                    erline_dht_bucket:update_transaction_id(#state{transaction_id = <<12,140>>})
+                    #node{transaction_id = <<12,141>>},
+                    erline_dht_bucket:update_transaction_id(#node{transaction_id = <<12,140>>})
                 )
             end
         }]

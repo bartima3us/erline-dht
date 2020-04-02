@@ -41,6 +41,12 @@
     code_change/3
 ]).
 
+-ifdef(TEST).
+-export([
+    update_transaction_id/1
+]).
+-endif.
+
 -define(SERVER, ?MODULE).
 -define(CHECK_NODE_TIMEOUT, 60000).
 -define(BUCKET_PING_LOW_TIME, 300000). % 6 min

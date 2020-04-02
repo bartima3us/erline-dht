@@ -23,7 +23,7 @@ do_ping_test_() ->
             fun() ->
                 ?assertEqual(
                     <<"d1:ad2:id20:abcdefghij0123456789e1:q4:ping1:t2:aa1:y1:qe">>,
-                    erline_dht_message:do_ping(<<97,97>>, <<"abcdefghij0123456789">>)
+                    erline_dht_message:ping_request(<<97,97>>, <<"abcdefghij0123456789">>)
                 )
             end
         },
@@ -31,7 +31,7 @@ do_ping_test_() ->
             fun() ->
                 ?assertEqual(
                     <<"d1:rd2:id20:mnopqrstuvwxyz123456e1:t2:aa1:y1:re">>,
-                    erline_dht_message:do_ping_response(<<97,97>>, <<"mnopqrstuvwxyz123456">>)
+                    erline_dht_message:ping_response(<<97,97>>, <<"mnopqrstuvwxyz123456">>)
                 )
             end
         }]
@@ -50,7 +50,7 @@ do_find_node_test_() ->
             fun() ->
                 ?assertEqual(
                     <<"d1:ad2:id20:abcdefghij01234567896:target20:mnopqrstuvwxyz123456e1:q9:find_node1:t2:aa1:y1:qe">>,
-                    erline_dht_message:do_find_node(<<97,97>>, <<"abcdefghij0123456789">>, <<"mnopqrstuvwxyz123456">>)
+                    erline_dht_message:find_node_request(<<97,97>>, <<"abcdefghij0123456789">>, <<"mnopqrstuvwxyz123456">>)
                 )
             end
         },
@@ -58,7 +58,7 @@ do_find_node_test_() ->
             fun() ->
                 ?assertEqual(
                     <<"d1:rd2:id20:0123456789abcdefghij5:nodes9:def456...e1:t2:aa1:y1:re">>,
-                    erline_dht_message:do_find_node_response(<<97,97>>, <<"0123456789abcdefghij">>, <<"def456...">>)
+                    erline_dht_message:find_node_response(<<97,97>>, <<"0123456789abcdefghij">>, <<"def456...">>)
                 )
             end
         }]
@@ -77,7 +77,7 @@ do_get_peers_test_() ->
             fun() ->
                 ?assertEqual(
                     <<"d1:ad2:id20:abcdefghij01234567899:info_hash20:mnopqrstuvwxyz123456e1:q9:get_peers1:t2:aa1:y1:qe">>,
-                    erline_dht_message:do_get_peers(<<97,97>>, <<"abcdefghij0123456789">>, <<"mnopqrstuvwxyz123456">>)
+                    erline_dht_message:get_peers_request(<<97,97>>, <<"abcdefghij0123456789">>, <<"mnopqrstuvwxyz123456">>)
                 )
             end
         },
@@ -85,7 +85,7 @@ do_get_peers_test_() ->
             fun() ->
                 ?assertEqual(
                     <<"d1:rd2:id20:abcdefghij01234567895:token8:aoeusnth6:valuesl6:axje.u6:idhtnmee1:t2:aa1:y1:re">>,
-                    erline_dht_message:do_get_peers_response(<<97,97>>, <<"abcdefghij0123456789">>, <<"aoeusnth">>, [<<"axje.u">>, <<"idhtnm">>])
+                    erline_dht_message:get_peers_response(<<97,97>>, <<"abcdefghij0123456789">>, <<"aoeusnth">>, [<<"axje.u">>, <<"idhtnm">>])
                 )
             end
         },
@@ -93,7 +93,7 @@ do_get_peers_test_() ->
             fun() ->
                 ?assertEqual(
                     <<"d1:rd2:id20:abcdefghij01234567895:nodes9:def456...5:token8:aoeusnthe1:t2:aa1:y1:re">>,
-                    erline_dht_message:do_get_peers_response(<<97,97>>, <<"abcdefghij0123456789">>, <<"aoeusnth">>, <<"def456...">>)
+                    erline_dht_message:get_peers_response(<<97,97>>, <<"abcdefghij0123456789">>, <<"aoeusnth">>, <<"def456...">>)
                 )
             end
         }]
@@ -112,7 +112,7 @@ do_announce_peer_test_() ->
             fun() ->
                 ?assertEqual(
                     <<"d1:ad2:id20:abcdefghij012345678912:implied_porti1e9:info_hash20:mnopqrstuvwxyz1234564:porti6881e5:token8:aoeusnthe1:q13:announce_peer1:t2:aa1:y1:qe">>,
-                    erline_dht_message:do_announce_peer(<<97,97>>, <<"abcdefghij0123456789">>, 1, <<"mnopqrstuvwxyz123456">>, 6881, <<"aoeusnth">>)
+                    erline_dht_message:announce_peer_request(<<97,97>>, <<"abcdefghij0123456789">>, 1, <<"mnopqrstuvwxyz123456">>, 6881, <<"aoeusnth">>)
                 )
             end
         },
@@ -120,7 +120,7 @@ do_announce_peer_test_() ->
             fun() ->
                 ?assertEqual(
                     <<"d1:rd2:id20:mnopqrstuvwxyz123456e1:t2:aa1:y1:re">>,
-                    erline_dht_message:do_announce_peer_response(<<97,97>>, <<"mnopqrstuvwxyz123456">>)
+                    erline_dht_message:announce_peer_response(<<97,97>>, <<"mnopqrstuvwxyz123456">>)
                 )
             end
         }]
@@ -139,7 +139,7 @@ do_error_response_test_() ->
             fun() ->
                 ?assertEqual(
                     <<"d1:eli201e23:A Generic Error Ocurrede1:t2:aa1:y1:ee">>,
-                    erline_dht_message:do_error_response(<<97,97>>, 201, <<"A Generic Error Ocurred">>)
+                    erline_dht_message:error_response(<<97,97>>, 201, <<"A Generic Error Ocurred">>)
                 )
             end
         }]
