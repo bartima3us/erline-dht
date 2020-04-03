@@ -13,8 +13,18 @@
 -type status()      :: suspicious | active | not_active.
 -type request()     :: ping | find_node | get_peers | announce.
 -type tx_id()       :: binary().
--type active_tx()   :: {request(), tx_id()}.
 -type distance()    :: 0..160.
+
+-record(get_peers_search, {
+    info_hash       :: binary(),
+    last_changed    :: calendar:datetime()
+}).
+
+-record(requested_node, {
+    ip_port         :: {inet:ip_address(), inet:port_number()},
+    transaction_id  :: tx_id(),
+    info_hash       :: binary()
+}).
 
 -record(node, {
     ip_port                             :: {inet:ip_address(), inet:port_number()},
@@ -95,6 +105,53 @@ update_transaction_id_test_() ->
                 ?assertEqual(
                     #node{transaction_id = <<12,141>>},
                     erline_dht_bucket:update_transaction_id(#node{transaction_id = <<12,140>>})
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
+clear_peers_searches_test_() ->
+    {setup,
+        fun() ->
+            ok = meck:new([erline_dht_db_ets, erline_dht_helper]),
+            ok = meck:expect(erline_dht_db_ets, get_all_get_peers_searches, [], [
+                #get_peers_search{last_changed = {{2020,7,1},{10,0,0}}},
+                #get_peers_search{last_changed = {{2020,7,1},{11,0,0}}},
+                #get_peers_search{last_changed = {{2020,7,1},{12,0,0}}}
+            ]),
+            ok = meck:expect(erline_dht_db_ets, delete_get_peers_search, ['_'], true),
+            ok = meck:expect(erline_dht_db_ets, delete_requested_nodes, ['_'], true),
+            ok = meck:expect(erline_dht_helper, datetime_diff, fun
+                (_, {{2020,7,1},{10,0,0}}) -> 500;
+                (_, {{2020,7,1},{11,0,0}}) -> 550;
+                (_, _) -> 10
+            end)
+        end,
+        fun(_) ->
+            true = meck:validate([erline_dht_db_ets, erline_dht_helper]),
+            ok = meck:unload([erline_dht_db_ets, erline_dht_helper])
+        end,
+        [{"Clear old peers searches.",
+            fun() ->
+                ?assertEqual(
+                    ok,
+                    erline_dht_bucket:clear_peers_searches(#state{db_mod = erline_dht_db_ets})
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, get_all_get_peers_searches, [])
+                ),
+                ?assertEqual(
+                    2,
+                    meck:num_calls(erline_dht_db_ets, delete_get_peers_search, ['_'])
+                ),
+                ?assertEqual(
+                    2,
+                    meck:num_calls(erline_dht_db_ets, delete_requested_nodes, ['_'])
                 )
             end
         }]

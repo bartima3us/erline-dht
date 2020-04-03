@@ -40,6 +40,7 @@
 -ifdef(TEST).
 -export([
     update_transaction_id/1,
+    clear_peers_searches/1,
     update_bucket_nodes_status/2,
     init_not_active_nodes_replacement/2,
     clear_not_assigned_nodes/1,
@@ -1050,9 +1051,10 @@ add_peer(InfoHashBin, Ip, Port, State = #state{info_hashes = InfoHashes}) ->
 %%    end.
 
 
-%%
-%%  @todo test
-%%
+%%  @private
+%%  @doc
+%%  Clear old peers search list and used peers in that searches cache.
+%%  @end
 -spec clear_peers_searches(
     State :: #state{}
 ) -> ok.
