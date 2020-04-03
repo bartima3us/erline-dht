@@ -40,6 +40,7 @@
 -ifdef(TEST).
 -export([
     update_transaction_id/1,
+    update_bucket_nodes_status/2,
     init_not_active_nodes_replacement/2,
     clear_not_assigned_nodes/1,
     clear_not_assigned_nodes/2
@@ -634,8 +635,12 @@ code_change(_OldVsn, State, _Extra) ->
     State   :: #state{}
 ) -> {ok, NewState :: #state{}}.
 
-do_ping_async(Ip, Port, State = #state{my_node_hash = MyNodeHash, socket = Socket}) ->
+do_ping_async(Ip, Port, State = #state{}) when is_tuple(Ip), is_integer(Port) ->
     {ok, Bucket, Node} = get_bucket_and_node(Ip, Port, State),
+    do_ping_async(Bucket, Node, State);
+
+do_ping_async(Bucket, Node = #node{ip_port = {Ip, Port}}, State = #state{}) ->
+    #state{my_node_hash = MyNodeHash, socket = Socket} = State,
     #node{transaction_id = TxId, active_transactions = CurrActiveTx} = Node,
     Params = [
         transaction_id,
@@ -656,8 +661,12 @@ do_ping_async(Ip, Port, State = #state{my_node_hash = MyNodeHash, socket = Socke
     State   :: #state{}
 ) -> {ok, NewState :: #state{}}.
 
-do_find_node_async(Ip, Port, Target, State = #state{socket = Socket, my_node_hash = MyNodeHash}) ->
+do_find_node_async(Ip, Port, Target, State = #state{}) when is_tuple(Ip), is_integer(Port) ->
     {ok, Bucket, Node} = get_bucket_and_node(Ip, Port, State),
+    do_find_node_async(Bucket, Node, Target, State);
+
+do_find_node_async(Bucket, Node = #node{ip_port = {Ip, Port}}, Target, State = #state{}) ->
+    #state{my_node_hash = MyNodeHash, socket = Socket} = State,
     #node{transaction_id = TxId, active_transactions = CurrActiveTx} = Node,
     Params = [
         transaction_id,
@@ -678,8 +687,12 @@ do_find_node_async(Ip, Port, Target, State = #state{socket = Socket, my_node_has
     State    :: #state{}
 ) -> {ok, TxId :: tx_id(), NewState :: #state{}}.
 
-do_get_peers_async(Ip, Port, InfoHash, State = #state{my_node_hash = MyNodeHash, socket = Socket}) ->
+do_get_peers_async(Ip, Port, InfoHash, State = #state{}) when is_tuple(Ip), is_integer(Port) ->
     {ok, Bucket, Node} = get_bucket_and_node(Ip, Port, State),
+    do_get_peers_async(Bucket, Node, InfoHash, State);
+
+do_get_peers_async(Bucket, Node = #node{ip_port = {Ip, Port}}, InfoHash, State = #state{}) ->
+    #state{my_node_hash = MyNodeHash, socket = Socket} = State,
     #node{transaction_id = TxId, active_transactions = CurrActiveTx} = Node,
     Params = [
         transaction_id,
@@ -1101,8 +1114,8 @@ init_not_active_nodes_replacement(Distance, State = #state{k = K, db_mod = DbMod
     NotAssignedNodes = lists:sort(fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
         LastChanged1 > LastChanged2
     end, DbMod:get_not_assigned_nodes(Distance)),
-    lists:foldl(fun (#node{ip_port = {Ip, Port}}, CurrAccState) ->
-        {ok, NewAccState} = do_ping_async(Ip, Port, CurrAccState),
+    lists:foldl(fun (Node, CurrAccState) ->
+        {ok, NewAccState} = do_ping_async(false, Node, CurrAccState),
         NewAccState
     end, State, lists:sublist(NotAssignedNodes, K * 10)).
 

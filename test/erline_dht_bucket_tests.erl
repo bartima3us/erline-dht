@@ -59,11 +59,11 @@
     #node{ip_port = {{12,34,92,159}, 6866}, last_changed = {{2020,7,1},{11,30,0}}, status = suspicious},
     #node{ip_port = {{12,34,92,160}, 6867}, last_changed = {{2020,7,1},{14,30,20}}, status = active},
     #node{ip_port = {{12,34,92,161}, 6868}, last_changed = {{2020,7,1},{15,0,0}}, status = active},
-    #node{ip_port = {{12,34,92,161}, 6869}, last_changed = {{2020,7,1},{16,0,0}}, status = suspicious},
-    #node{ip_port = {{12,34,92,161}, 6870}, last_changed = {{2020,7,1},{17,0,0}}, status = suspicious},
-    #node{ip_port = {{12,34,92,161}, 6871}, last_changed = {{2020,7,1},{18,0,0}}, status = not_active},
-    #node{ip_port = {{12,34,92,161}, 6872}, last_changed = {{2020,7,1},{19,0,0}}, status = not_active},
-    #node{ip_port = {{12,34,92,161}, 6873}, last_changed = {{2020,7,1},{20,0,0}}, status = active}
+    #node{ip_port = {{12,34,92,162}, 6869}, last_changed = {{2020,7,1},{16,0,0}}, status = suspicious},
+    #node{ip_port = {{12,34,92,163}, 6870}, last_changed = {{2020,7,1},{17,0,0}}, status = suspicious},
+    #node{ip_port = {{12,34,92,164}, 6871}, last_changed = {{2020,7,1},{18,0,0}}, status = not_active},
+    #node{ip_port = {{12,34,92,165}, 6872}, last_changed = {{2020,7,1},{19,0,0}}, status = not_active},
+    #node{ip_port = {{12,34,92,166}, 6873}, last_changed = {{2020,7,1},{20,0,0}}, status = active}
 ]).
 
 
@@ -104,49 +104,134 @@ update_transaction_id_test_() ->
 %%
 %%
 %%
-%%update_bucket_nodes_status_test_() ->
-%%    State = #state{
-%%        buckets = [
-%%            #bucket{
-%%                distance = 0,
-%%                nodes = ?NODES_LIST
-%%            },
-%%            #bucket{
-%%                distance = 1,
-%%                nodes = [
-%%                    #node{ip_port = {{14,34,92,156}, 6863}, last_changed = {{2020,7,1},{12,0,0}}, status = active}
-%%                ]
-%%            }
-%%        ]
-%%    },
-%%    {setup,
-%%        fun() ->
-%%            ok = meck:new(erline_dht_db_ets),
-%%            ok = meck:new(erline_dht_bucket, [passthrough]),
-%%            ok = meck:expect(erline_dht_db_ets, get_not_assigned_nodes, [0], ?NODES_LIST),
-%%            ok = meck:expect(erline_dht_bucket, do_ping_async, ['_', '_', '_'], {ok, State})
-%%        end,
-%%        fun(_) ->
-%%            true = meck:validate([erline_dht_db_ets, erline_dht_bucket]),
-%%            ok = meck:unload([erline_dht_db_ets, erline_dht_bucket])
-%%        end,
-%%        [{"",
-%%            fun() ->
-%%                ?assertEqual(
-%%                    State,
-%%                    erline_dht_bucket:init_not_active_nodes_replacement(0, State)
-%%                ),
-%%                ?assertEqual(
-%%                    1,
-%%                    meck:num_calls(erline_dht_db_ets, get_not_assigned_nodes, ['_'])
-%%                ),
-%%                ?assertEqual(
-%%                    10,
-%%                    meck:num_calls(erline_dht_bucket, do_ping_async, ['_', '_', '_'])
-%%                )
-%%            end
-%%        }]
-%%    }.
+update_bucket_nodes_status_test_() ->
+    State = #state{
+        db_mod  = erline_dht_db_ets,
+        buckets = [
+            #bucket{
+                distance = 0,
+                nodes = ?NODES_LIST
+            },
+            #bucket{
+                distance = 1,
+                nodes = [
+                    #node{ip_port = {{14,34,92,156}, 6863}, last_changed = {{2020,7,1},{12,0,0}}, status = active}
+                ]
+            }
+        ]
+    },
+    {setup,
+        fun() ->
+            ok = meck:new([erline_dht_db_ets, erline_dht_helper, erline_dht_message]),
+            ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, fun (_, _) -> [] end),
+            ok = meck:expect(erline_dht_message, send_ping, ['_', '_', '_', '_', '_'], ok),
+            ok = meck:expect(erline_dht_helper, datetime_diff, fun
+                (_, {{2020,7,1},{12,0,0}}) -> 50;
+                (_, {{2020,7,1},{11,0,0}}) -> 150;
+                (_, {{2020,7,1},{14,0,0}}) -> 150;
+                (_, {{2020,7,1},{17,0,0}}) -> 200;
+                (_, {{2020,7,1},{18,0,0}}) -> 200;
+                (_, _) -> 1000
+            end)
+        end,
+        fun(_) ->
+            true = meck:validate([erline_dht_db_ets, erline_dht_helper, erline_dht_message]),
+            ok = meck:unload([erline_dht_db_ets, erline_dht_helper, erline_dht_message])
+        end,
+        [{"Update nodes statuses.",
+            fun() ->
+                NewState = #state{
+                    db_mod  = erline_dht_db_ets,
+                    buckets = [
+                        #bucket{
+                            distance = 0,
+                            nodes = [
+                                #node{
+                                    ip_port      = {{12,34,92,156}, 6863},
+                                    last_changed = {{2020,7,1},{12,0,0}},
+                                    status       = active
+                                },
+                                #node{
+                                    ip_port      = {{12,34,92,157}, 6864},
+                                    last_changed = {{2020,7,1},{11,0,0}},
+                                    status       = active
+                                },
+                                #node{
+                                    ip_port      = {{12,34,92,158}, 6865},
+                                    last_changed = {{2020,7,1},{14,0,0}},
+                                    status       = active
+                                },
+                                #node{ % Changed to not_active
+                                    ip_port      = {{12,34,92,159}, 6866},
+                                    last_changed = {{2020,7,1},{11,30,0}},
+                                    status       = not_active
+                                },
+                                #node{ % Changed to suspicious, pinged one more time
+                                    ip_port             = {{12,34,92,160}, 6867},
+                                    last_changed        = {{2020,7,1},{14,30,20}},
+                                    status              = suspicious,
+                                    active_transactions = [{ping,<<0,0>>}],
+                                    transaction_id      = <<0,1>>
+                                },
+                                #node{ % Changed to suspicious, pinged one more time
+                                    ip_port             = {{12,34,92,161}, 6868},
+                                    last_changed        = {{2020,7,1},{15,0,0}},
+                                    status              = suspicious,
+                                    active_transactions = [{ping,<<0,0>>}],
+                                    transaction_id      = <<0,1>>
+                                },
+                                #node{ % Changed to not_active
+                                    ip_port      = {{12,34,92,162}, 6869},
+                                    last_changed = {{2020,7,1},{16,0,0}},
+                                    status       = not_active
+                                },
+                                #node{
+                                    ip_port      = {{12,34,92,163}, 6870},
+                                    last_changed = {{2020,7,1},{17,0,0}},
+                                    status       = suspicious
+                                },
+                                #node{
+                                    ip_port      = {{12,34,92,164}, 6871},
+                                    last_changed = {{2020,7,1},{18,0,0}},
+                                    status       = not_active
+                                },
+                                #node{
+                                    ip_port      = {{12,34,92,165}, 6872},
+                                    last_changed = {{2020,7,1},{19,0,0}},
+                                    status       = not_active
+                                },
+                                #node{ % Changed to suspicious, pinged one more time
+                                    ip_port             = {{12,34,92,166}, 6873},
+                                    last_changed        = {{2020,7,1},{20,0,0}},
+                                    status              = suspicious,
+                                    active_transactions = [{ping,<<0,0>>}],
+                                    transaction_id      = <<0,1>>
+                                }
+                            ]
+                        },
+                        #bucket{
+                            distance = 1,
+                            nodes = [
+                                #node{ip_port = {{14,34,92,156}, 6863}, last_changed = {{2020,7,1},{12,0,0}}, status = active}
+                            ]
+                        }
+                    ]
+                },
+                ?assertEqual(
+                    {NewState, true},
+                    erline_dht_bucket:update_bucket_nodes_status(0, State)
+                ),
+                ?assertEqual(
+                    11,
+                    meck:num_calls(erline_dht_helper, datetime_diff, ['_', '_'])
+                ),
+                ?assertEqual(
+                    3,
+                    meck:num_calls(erline_dht_message, send_ping, ['_', '_', '_', '_', '_'])
+                )
+            end
+        }]
+    }.
 
 
 %%
@@ -157,18 +242,16 @@ init_not_active_nodes_replacement_test_() ->
     {setup,
         fun() ->
             ok = meck:new([erline_dht_db_ets, erline_dht_message]),
-            ok = meck:new(erline_dht_bucket, [passthrough]),
             ok = meck:expect(erline_dht_db_ets, get_not_assigned_nodes, [0], ?NODES_LIST),
             ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, fun (Ip, Port) -> [#node{ip_port = {Ip, Port}}] end),
             ok = meck:expect(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_'], true),
-            ok = meck:expect(erline_dht_bucket, do_ping_async, ['_', '_', '_'], {ok, State}),
             ok = meck:expect(erline_dht_message, send_ping, ['_', '_', '_', '_', '_'], ok)
         end,
         fun(_) ->
-            true = meck:validate([erline_dht_db_ets, erline_dht_message, erline_dht_bucket]),
-            ok = meck:unload([erline_dht_db_ets, erline_dht_message, erline_dht_bucket])
+            true = meck:validate([erline_dht_db_ets, erline_dht_message]),
+            ok = meck:unload([erline_dht_db_ets, erline_dht_message])
         end,
-        [{"",
+        [{"Initiate not actives nodes replacement.",
             fun() ->
                 ?assertEqual(
                     State,
@@ -177,6 +260,10 @@ init_not_active_nodes_replacement_test_() ->
                 ?assertEqual(
                     1,
                     meck:num_calls(erline_dht_db_ets, get_not_assigned_nodes, ['_'])
+                ),
+                ?assertEqual(
+                    10,
+                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_'])
                 ),
                 ?assertEqual(
                     10,
