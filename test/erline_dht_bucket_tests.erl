@@ -52,6 +52,20 @@
     not_assigned_clearing_threshold     :: pos_integer()
 }).
 
+-define(NODES_LIST, [
+    #node{ip_port = {{12,34,92,156}, 6863}, last_changed = {{2020,7,1},{12,0,0}}, status = active},
+    #node{ip_port = {{12,34,92,157}, 6864}, last_changed = {{2020,7,1},{11,0,0}}, status = active},
+    #node{ip_port = {{12,34,92,158}, 6865}, last_changed = {{2020,7,1},{14,0,0}}, status = active},
+    #node{ip_port = {{12,34,92,159}, 6866}, last_changed = {{2020,7,1},{11,30,0}}, status = suspicious},
+    #node{ip_port = {{12,34,92,160}, 6867}, last_changed = {{2020,7,1},{14,30,20}}, status = active},
+    #node{ip_port = {{12,34,92,161}, 6868}, last_changed = {{2020,7,1},{15,0,0}}, status = active},
+    #node{ip_port = {{12,34,92,161}, 6869}, last_changed = {{2020,7,1},{16,0,0}}, status = suspicious},
+    #node{ip_port = {{12,34,92,161}, 6870}, last_changed = {{2020,7,1},{17,0,0}}, status = suspicious},
+    #node{ip_port = {{12,34,92,161}, 6871}, last_changed = {{2020,7,1},{18,0,0}}, status = not_active},
+    #node{ip_port = {{12,34,92,161}, 6872}, last_changed = {{2020,7,1},{19,0,0}}, status = not_active},
+    #node{ip_port = {{12,34,92,161}, 6873}, last_changed = {{2020,7,1},{20,0,0}}, status = active}
+]).
+
 
 %%
 %%
@@ -90,20 +104,98 @@ update_transaction_id_test_() ->
 %%
 %%
 %%
+%%update_bucket_nodes_status_test_() ->
+%%    State = #state{
+%%        buckets = [
+%%            #bucket{
+%%                distance = 0,
+%%                nodes = ?NODES_LIST
+%%            },
+%%            #bucket{
+%%                distance = 1,
+%%                nodes = [
+%%                    #node{ip_port = {{14,34,92,156}, 6863}, last_changed = {{2020,7,1},{12,0,0}}, status = active}
+%%                ]
+%%            }
+%%        ]
+%%    },
+%%    {setup,
+%%        fun() ->
+%%            ok = meck:new(erline_dht_db_ets),
+%%            ok = meck:new(erline_dht_bucket, [passthrough]),
+%%            ok = meck:expect(erline_dht_db_ets, get_not_assigned_nodes, [0], ?NODES_LIST),
+%%            ok = meck:expect(erline_dht_bucket, do_ping_async, ['_', '_', '_'], {ok, State})
+%%        end,
+%%        fun(_) ->
+%%            true = meck:validate([erline_dht_db_ets, erline_dht_bucket]),
+%%            ok = meck:unload([erline_dht_db_ets, erline_dht_bucket])
+%%        end,
+%%        [{"",
+%%            fun() ->
+%%                ?assertEqual(
+%%                    State,
+%%                    erline_dht_bucket:init_not_active_nodes_replacement(0, State)
+%%                ),
+%%                ?assertEqual(
+%%                    1,
+%%                    meck:num_calls(erline_dht_db_ets, get_not_assigned_nodes, ['_'])
+%%                ),
+%%                ?assertEqual(
+%%                    10,
+%%                    meck:num_calls(erline_dht_bucket, do_ping_async, ['_', '_', '_'])
+%%                )
+%%            end
+%%        }]
+%%    }.
+
+
+%%
+%%
+%%
+init_not_active_nodes_replacement_test_() ->
+    State = #state{k = 1, db_mod = erline_dht_db_ets},
+    {setup,
+        fun() ->
+            ok = meck:new([erline_dht_db_ets, erline_dht_message]),
+            ok = meck:new(erline_dht_bucket, [passthrough]),
+            ok = meck:expect(erline_dht_db_ets, get_not_assigned_nodes, [0], ?NODES_LIST),
+            ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, fun (Ip, Port) -> [#node{ip_port = {Ip, Port}}] end),
+            ok = meck:expect(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_'], true),
+            ok = meck:expect(erline_dht_bucket, do_ping_async, ['_', '_', '_'], {ok, State}),
+            ok = meck:expect(erline_dht_message, send_ping, ['_', '_', '_', '_', '_'], ok)
+        end,
+        fun(_) ->
+            true = meck:validate([erline_dht_db_ets, erline_dht_message, erline_dht_bucket]),
+            ok = meck:unload([erline_dht_db_ets, erline_dht_message, erline_dht_bucket])
+        end,
+        [{"",
+            fun() ->
+                ?assertEqual(
+                    State,
+                    erline_dht_bucket:init_not_active_nodes_replacement(0, State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, get_not_assigned_nodes, ['_'])
+                ),
+                ?assertEqual(
+                    10,
+                    meck:num_calls(erline_dht_message, send_ping, ['_', '_', '_', '_', '_'])
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
 clear_not_assigned_nodes_test_() ->
-    NodesList = [
-        #node{ip_port = {{12,34,92,156}, 6863}, last_changed = {{2020,7,1},{12,0,0}}},
-        #node{ip_port = {{12,34,92,157}, 6864}, last_changed = {{2020,7,1},{11,0,0}}},
-        #node{ip_port = {{12,34,92,158}, 6865}, last_changed = {{2020,7,1},{14,0,0}}},
-        #node{ip_port = {{12,34,92,159}, 6866}, last_changed = {{2020,7,1},{11,30,0}}},
-        #node{ip_port = {{12,34,92,160}, 6867}, last_changed = {{2020,7,1},{14,30,20}}},
-        #node{ip_port = {{12,34,92,161}, 6868}, last_changed = {{2020,7,1},{15,0,0}}}
-    ],
     State = #state{db_mod = erline_dht_db_ets},
     {setup,
         fun() ->
             ok = meck:new([erline_dht_db_ets, erline_dht_helper]),
-            ok = meck:expect(erline_dht_db_ets, get_not_assigned_nodes, [0], NodesList),
+            ok = meck:expect(erline_dht_db_ets, get_not_assigned_nodes, [0], ?NODES_LIST),
             ok = meck:expect(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, ['_', '_'], true),
             ok = meck:expect(erline_dht_db_ets, delete_from_not_assigned_nodes_by_dist_date, [undefined, {{2020,7,1},{12,0,0}}], ok),
             ok = meck:expect(erline_dht_helper, change_datetime, ['_', '_'], {{2020,7,1},{12,0,0}})
@@ -145,7 +237,7 @@ clear_not_assigned_nodes_test_() ->
                     erline_dht_bucket:clear_not_assigned_nodes(0, State#state{not_assigned_clearing_threshold = 5})
                 ),
                 ?assertEqual(
-                    1,
+                    3,
                     meck:num_calls(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, ['_', '_'])
                 ),
                 ok = meck:reset(erline_dht_db_ets)
@@ -155,7 +247,7 @@ clear_not_assigned_nodes_test_() ->
             fun() ->
                 ?assertEqual(
                     ok,
-                    erline_dht_bucket:clear_not_assigned_nodes(0, State#state{not_assigned_clearing_threshold = 7})
+                    erline_dht_bucket:clear_not_assigned_nodes(0, State#state{not_assigned_clearing_threshold = 12})
                 ),
                 ?assertEqual(
                     0,

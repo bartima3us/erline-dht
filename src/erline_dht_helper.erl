@@ -23,7 +23,7 @@
 %%  @doc
 %%  Get distance (in integer) between two same length hashes.
 %%  1 is the farthest, 160 is the nearest.
-%%
+%%  @end
 get_distance(Hash, NodeHash) when
     is_binary(Hash),
     is_binary(NodeHash),
@@ -63,6 +63,7 @@ get_distance(<<Hash:1/binary, _HashRest/binary>>, <<NodeHash:1/binary, _NodeHash
 
 %%  @doc
 %%  Get a new hash of the specified distance by the specified hash.
+%%  @end
 %%  @todo not used anymore?
 get_hash_of_distance(Hash, _Distance) when not is_binary(Hash) ->
     {error, {malformed_hash, Hash}};

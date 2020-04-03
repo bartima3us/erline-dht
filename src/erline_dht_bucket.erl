@@ -40,6 +40,7 @@
 -ifdef(TEST).
 -export([
     update_transaction_id/1,
+    init_not_active_nodes_replacement/2,
     clear_not_assigned_nodes/1,
     clear_not_assigned_nodes/2
 ]).
@@ -552,7 +553,12 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
 %
 %
 handle_info({bucket_check, Distance}, State = #state{}) ->
-    NewState = clear_bucket(Distance, State),
+    % Check if there are nodes which became not_active and try to replace them with K * 10 freshest nodes from not assigned nodes list
+    NewState1 = case update_bucket_nodes_status(Distance, State) of
+        {NewState0, true}  -> init_not_active_nodes_replacement(Distance, NewState0);
+        {NewState0, false} -> NewState0
+    end,
+    NewState = update_bucket(Distance, [check_timer], NewState1),
     {noreply, NewState};
 
 %
@@ -629,13 +635,13 @@ code_change(_OldVsn, State, _Extra) ->
 ) -> {ok, NewState :: #state{}}.
 
 do_ping_async(Ip, Port, State = #state{my_node_hash = MyNodeHash, socket = Socket}) ->
-    {ok, _Bucket, Node} = get_bucket_and_node(Ip, Port, State),
+    {ok, Bucket, Node} = get_bucket_and_node(Ip, Port, State),
     #node{transaction_id = TxId, active_transactions = CurrActiveTx} = Node,
     Params = [
         transaction_id,
         {active_transactions, [{ping, TxId} | CurrActiveTx]}
     ],
-    NewState = update_node(Ip, Port, Params, State),
+    NewState = update_node(Bucket, Node, Params, State),
     ok = erline_dht_message:send_ping(Ip, Port, Socket, MyNodeHash, TxId),
     {ok, NewState}.
 
@@ -651,13 +657,13 @@ do_ping_async(Ip, Port, State = #state{my_node_hash = MyNodeHash, socket = Socke
 ) -> {ok, NewState :: #state{}}.
 
 do_find_node_async(Ip, Port, Target, State = #state{socket = Socket, my_node_hash = MyNodeHash}) ->
-    {ok, _Bucket, Node} = get_bucket_and_node(Ip, Port, State),
+    {ok, Bucket, Node} = get_bucket_and_node(Ip, Port, State),
     #node{transaction_id = TxId, active_transactions = CurrActiveTx} = Node,
     Params = [
         transaction_id,
         {active_transactions, [{find_node, TxId} | CurrActiveTx]}
     ],
-    NewState = update_node(Ip, Port, Params, State),
+    NewState = update_node(Bucket, Node, Params, State),
     ok = erline_dht_message:send_find_node(Ip, Port, Socket, MyNodeHash, TxId, Target),
     {ok, NewState}.
 
@@ -673,13 +679,13 @@ do_find_node_async(Ip, Port, Target, State = #state{socket = Socket, my_node_has
 ) -> {ok, TxId :: tx_id(), NewState :: #state{}}.
 
 do_get_peers_async(Ip, Port, InfoHash, State = #state{my_node_hash = MyNodeHash, socket = Socket}) ->
-    {ok, _Bucket, Node} = get_bucket_and_node(Ip, Port, State),
+    {ok, Bucket, Node} = get_bucket_and_node(Ip, Port, State),
     #node{transaction_id = TxId, active_transactions = CurrActiveTx} = Node,
     Params = [
         transaction_id,
         {active_transactions, [{get_peers, TxId} | CurrActiveTx]}
     ],
-    NewState = update_node(Ip, Port, Params, State),
+    NewState = update_node(Bucket, Node, Params, State),
     ok = erline_dht_message:send_get_peers(Ip, Port, Socket, MyNodeHash, TxId, InfoHash),
     {ok, TxId, NewState}.
 
@@ -749,8 +755,16 @@ update_transaction_id(Node = #node{transaction_id = LastTransactionIdBin}) ->
     State   :: #state{}
 ) -> NewState :: #state{}.
 
-update_node(Ip, Port, Params, State = #state{my_node_hash = MyNodeHash, buckets = Buckets, db_mod = DbMod}) ->
+update_node(Ip, Port, Params, State = #state{}) when is_tuple(Ip), is_integer(Port) ->
     {ok, Bucket, Node} = get_bucket_and_node(Ip, Port, State),
+    update_node(Bucket, Node, Params, State);
+
+update_node(Bucket, Node = #node{ip_port = {Ip, Port}}, Params, State = #state{}) ->
+    #state{
+        my_node_hash = MyNodeHash,
+        buckets      = Buckets,
+        db_mod       = DbMod
+    } = State,
     UpdatedNode = lists:foldl(fun
         ({hash, Hash}, AccNode) ->
             case erline_dht_helper:get_distance(MyNodeHash, Hash) of
@@ -1042,18 +1056,23 @@ clear_peers_searches(#state{db_mod = DbMod}) ->
     end, DbMod:get_all_get_peers_searches()).
 
 
-%%
-%%  @todo test
-%%
--spec clear_bucket(
+%%  @private
+%%  @doc
+%%  Change active nodes to suspicious, suspicious - to not active.
+%%  @end
+-spec update_bucket_nodes_status(
     Distance :: distance(),
     State    :: #state{}
-) -> NewState :: #state{}.
+) -> {NewState :: #state{}, AtLeastOneNotActive :: boolean()}.
 
-clear_bucket(Distance, State = #state{k = K, buckets = CurrBuckets, db_mod = DbMod}) ->
+update_bucket_nodes_status(Distance, State = #state{buckets = CurrBuckets}) ->
     {value, #bucket{nodes = Nodes}} = lists:keysearch(Distance, #bucket.distance, CurrBuckets),
-    {NewState0, BecomeNotActive} = lists:foldl(fun (Node, {CurrAccState, BecomeNotActiveAcc}) ->
-        #node{ip_port = {Ip, Port}, last_changed = LastChanged, status = Status} = Node,
+    {NewState, BecomeNotActive} = lists:foldl(fun (Node, {CurrAccState, BecomeNotActiveAcc}) ->
+        #node{
+            ip_port      = {Ip, Port},
+            last_changed = LastChanged,
+            status       = Status
+        } = Node,
         case erline_dht_helper:datetime_diff(calendar:local_time(), LastChanged) of
             SecondsTillLastChanged when SecondsTillLastChanged > ?ACTIVE_TTL, Status =:= active ->
                 CurrAccState0 = update_node(Ip, Port, [{status, suspicious}], CurrAccState),
@@ -1066,22 +1085,29 @@ clear_bucket(Distance, State = #state{k = K, buckets = CurrBuckets, db_mod = DbM
                 {CurrAccState, BecomeNotActiveAcc}
         end
     end, {State, 0}, Nodes),
-    NewState = update_bucket(Distance, [check_timer], NewState0),
-    % Check if there are nodes which became not_active and try to replace them with K * 10 freshest nodes from not assigned nodes list
+    {NewState, (BecomeNotActive > 0)}.
+
+
+%%  @private
+%%  @doc
+%%  Initiate ping and try to replace not active nodes into active ones.
+%%  @end
+-spec init_not_active_nodes_replacement(
+    Distance :: distance(),
+    State    :: #state{}
+) -> NewState :: #state{}.
+
+init_not_active_nodes_replacement(Distance, State = #state{k = K, db_mod = DbMod}) ->
     NotAssignedNodes = lists:sort(fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
         LastChanged1 > LastChanged2
     end, DbMod:get_not_assigned_nodes(Distance)),
-    case BecomeNotActive of
-        0 ->
-            NewState;
-        _ ->
-            lists:foldl(fun (#node{ip_port = {Ip, Port}}, CurrAccState) ->
-                {ok, NewAccState} = do_ping_async(Ip, Port, CurrAccState),
-                NewAccState
-            end, NewState, lists:sublist(NotAssignedNodes, K * 10))
-    end.
+    lists:foldl(fun (#node{ip_port = {Ip, Port}}, CurrAccState) ->
+        {ok, NewAccState} = do_ping_async(Ip, Port, CurrAccState),
+        NewAccState
+    end, State, lists:sublist(NotAssignedNodes, K * 10)).
 
 
+%%  @private
 %%  @doc
 %%  Clear not assigned nodes without distance which exceeded TTL.
 %%  @end
@@ -1094,6 +1120,7 @@ clear_not_assigned_nodes(#state{db_mod = DbMod}) ->
     ok = DbMod:delete_from_not_assigned_nodes_by_dist_date(undefined, Dt).
 
 
+%%  @private
 %%  @doc
 %%  Clear not assigned nodes with distance which exceeded TTL and threshold.
 %%  @end
