@@ -27,11 +27,6 @@
     get_buckets_filling/0
 ]).
 
-% Temp @todo remove
--export([
-    get_peers_searches/0
-]).
-
 %% gen_server callbacks
 -export([
     init/1,
@@ -44,7 +39,9 @@
 
 -ifdef(TEST).
 -export([
-    update_transaction_id/1
+    update_transaction_id/1,
+    clear_not_assigned_nodes/1,
+    clear_not_assigned_nodes/2
 ]).
 -endif.
 
@@ -94,7 +91,6 @@
 %%--------------------------------------------------------------------
 %% @doc
 %% Starts the server
-%%
 %% @end
 %%--------------------------------------------------------------------
 -spec(start_link(
@@ -136,7 +132,7 @@ get_peers(Ip, Port, InfoHash) ->
 
 %%  @doc
 %%  Returns UDP port of the client.
-%%
+%%  @end
 -spec get_port() -> inet:port_number().
 
 get_port() ->
@@ -145,7 +141,7 @@ get_port() ->
 
 %%  @doc
 %%  Returns event manager pid.
-%%
+%%  @end
 -spec get_event_mgr_pid() -> pid().
 
 get_event_mgr_pid() ->
@@ -178,13 +174,6 @@ get_not_assigned_nodes(Distance) ->
 %%
 get_buckets_filling() ->
     gen_server:call(?SERVER, get_buckets_filling).
-
-
-%%
-%%
-%%
-get_peers_searches() ->
-    gen_server:cast(?SERVER, get_peers_searches).
 
 
 %%%===================================================================
@@ -330,7 +319,6 @@ handle_cast({add_node, Ip, Port, Hash}, State = #state{}) ->
                 undefined ->
                     undefined;
                 Hash ->
-                    % @todo check if not over K * 100 nodes for Distance. Otherwise drop.
                     case erline_dht_helper:get_distance(MyNodeHash, Hash) of
                         {ok, Dist}       -> Dist;
                         {error, _Reason} -> undefined
@@ -393,12 +381,6 @@ handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{}) ->
 
 %
 %
-handle_cast(get_peers_searches, State = #state{db_mod = DbMod}) ->
-    io:format("xxxxxxxx GetPeersSearches=~p~n", [DbMod:get_all_get_peers_searches()]),
-    {noreply, State};
-
-%
-%
 handle_cast(_Request, State) ->
     {noreply, State}.
 
@@ -451,7 +433,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
                                 true ->
                                     update_node(Ip, Port, Params ++ [{active_transactions, NewActiveTx}], State);
                                  % If hash is changed, move node to another bucket
-                                false -> % todo: maybe_clear_bucket
+                                false ->
                                     case maybe_clear_bucket(NewDist, State) of
                                         {true, NewState0}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}, {active_transactions, NewActiveTx}], NewState0);
                                         {false, NewState0} -> update_node(Ip, Port, Params ++ [unassign, {active_transactions, NewActiveTx}], NewState0)
@@ -464,8 +446,8 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
                             {ok, NewState1} = do_find_node_async(Ip, Port, MyNodeHash, NewState0),
                             case maybe_clear_bucket(NewDist, NewState1) of
                                 {true, NewState2}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState2);
-                                % No place in the bucket. Add to buffer
-                                {false, NewState2} -> update_node(Ip, Port, Params, NewState2) % @todo implement add to buffer
+                                % No place in the bucket.
+                                {false, NewState2} -> update_node(Ip, Port, Params, NewState2)
                             end
                     end;
                 {error, _Reason} ->
@@ -477,6 +459,10 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
                     ],
                     update_node(Ip, Port, Params, State)
             end;
+        % @todo implement
+        % Handle find_node query
+        {ok, find_node, q, _, _} ->
+            State;
         %
         % Handle find_node response
         {ok, find_node, r, Nodes, NewActiveTx} ->
@@ -489,6 +475,10 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
                 {active_transactions, NewActiveTx}
             ],
             update_node(Ip, Port, Params, State);
+        % @todo implement
+        % Handle find_node query
+        {ok, get_peers, q, _, _} ->
+            State;
         %
         % Handle get_peers response
         {ok, get_peers, r, {What, TxId, NodesOrValues, Token}, NewActiveTx} ->
@@ -528,11 +518,14 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
                 {active_transactions, NewActiveTx}
             ],
             update_node(Ip, Port, Params, NewState0);
-        %
+        % @todo implement
         % Handle announce_peer query
         {ok, announce_peer, q, _Data, _GotTxId} ->
-            % @todo implement
             update_node(Ip, Port, [{last_changed, calendar:local_time()}], State);
+        % @todo implement
+        % Handle announce_peer response
+        {ok, announce_peer, r, _, _} ->
+            State;
         %
         % Handle errors
         {error, {krpc_error, _Reason}, NewActiveTx} ->
@@ -1089,9 +1082,9 @@ clear_bucket(Distance, State = #state{k = K, buckets = CurrBuckets, db_mod = DbM
     end.
 
 
-%%
-%%  @todo test
-%%
+%%  @doc
+%%  Clear not assigned nodes without distance which exceeded TTL.
+%%  @end
 -spec clear_not_assigned_nodes(
     State :: #state{}
 ) -> ok.
@@ -1101,9 +1094,9 @@ clear_not_assigned_nodes(#state{db_mod = DbMod}) ->
     ok = DbMod:delete_from_not_assigned_nodes_by_dist_date(undefined, Dt).
 
 
-%%
-%%  @todo test
-%%
+%%  @doc
+%%  Clear not assigned nodes with distance which exceeded TTL and threshold.
+%%  @end
 -spec clear_not_assigned_nodes(
     Distance :: distance(),
     State    :: #state{}

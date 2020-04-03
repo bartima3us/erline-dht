@@ -13,12 +13,8 @@
 
 do_ping_test_() ->
     {setup,
-        fun() ->
-            ok
-        end,
-        fun(_) ->
-            ok
-        end,
+        fun() -> ok end,
+        fun(_) -> ok end,
         [{"Ping request.",
             fun() ->
                 ?assertEqual(
@@ -40,12 +36,8 @@ do_ping_test_() ->
 
 do_find_node_test_() ->
     {setup,
-        fun() ->
-            ok
-        end,
-        fun(_) ->
-            ok
-        end,
+        fun() -> ok end,
+        fun(_) -> ok end,
         [{"Find node request.",
             fun() ->
                 ?assertEqual(
@@ -67,12 +59,8 @@ do_find_node_test_() ->
 
 do_get_peers_test_() ->
     {setup,
-        fun() ->
-            ok
-        end,
-        fun(_) ->
-            ok
-        end,
+        fun() -> ok end,
+        fun(_) -> ok end,
         [{"Get peers request.",
             fun() ->
                 ?assertEqual(
@@ -102,12 +90,8 @@ do_get_peers_test_() ->
 
 do_announce_peer_test_() ->
     {setup,
-        fun() ->
-            ok
-        end,
-        fun(_) ->
-            ok
-        end,
+        fun() -> ok end,
+        fun(_) -> ok end,
         [{"Announce peer request.",
             fun() ->
                 ?assertEqual(
@@ -129,12 +113,8 @@ do_announce_peer_test_() ->
 
 do_error_response_test_() ->
     {setup,
-        fun() ->
-            ok
-        end,
-        fun(_) ->
-            ok
-        end,
+        fun() -> ok end,
+        fun(_) -> ok end,
         [{"Error response.",
             fun() ->
                 ?assertEqual(

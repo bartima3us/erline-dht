@@ -27,15 +27,39 @@
     distance                            :: distance()
 }).
 
+-record(bucket, {
+    distance            :: distance(),
+    check_timer         :: reference(),
+    ping_timer          :: reference(),
+    nodes       = []    :: [#node{}]
+}).
 
+-record(info_hash, {
+    info_hash           :: binary(),
+    peers       = []    :: [{inet:ip_address(), inet:port_number()}]
+}).
+
+-record(state, {
+    my_node_hash                        :: binary(),
+    socket                              :: port(),
+    k                                   :: pos_integer(),
+    buckets                     = []    :: [#bucket{}],
+    info_hashes                 = []    :: [#info_hash{}],
+    get_peers_searches_timer            :: reference(),
+    clear_not_assigned_nodes_timer      :: reference(),
+    db_mod                              :: module(),
+    event_mgr_pid                       :: pid(),
+    not_assigned_clearing_threshold     :: pos_integer()
+}).
+
+
+%%
+%%
+%%
 update_transaction_id_test_() ->
     {setup,
-        fun() ->
-            ok
-        end,
-        fun(_) ->
-            ok
-        end,
+        fun() -> ok end,
+        fun(_) -> ok end,
         [{"First transaction ID.",
             fun() ->
                 ?assertEqual(
@@ -62,4 +86,95 @@ update_transaction_id_test_() ->
         }]
     }.
 
+
+%%
+%%
+%%
+clear_not_assigned_nodes_test_() ->
+    NodesList = [
+        #node{ip_port = {{12,34,92,156}, 6863}, last_changed = {{2020,7,1},{12,0,0}}},
+        #node{ip_port = {{12,34,92,157}, 6864}, last_changed = {{2020,7,1},{11,0,0}}},
+        #node{ip_port = {{12,34,92,158}, 6865}, last_changed = {{2020,7,1},{14,0,0}}},
+        #node{ip_port = {{12,34,92,159}, 6866}, last_changed = {{2020,7,1},{11,30,0}}},
+        #node{ip_port = {{12,34,92,160}, 6867}, last_changed = {{2020,7,1},{14,30,20}}},
+        #node{ip_port = {{12,34,92,161}, 6868}, last_changed = {{2020,7,1},{15,0,0}}}
+    ],
+    State = #state{db_mod = erline_dht_db_ets},
+    {setup,
+        fun() ->
+            ok = meck:new([erline_dht_db_ets, erline_dht_helper]),
+            ok = meck:expect(erline_dht_db_ets, get_not_assigned_nodes, [0], NodesList),
+            ok = meck:expect(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, ['_', '_'], true),
+            ok = meck:expect(erline_dht_db_ets, delete_from_not_assigned_nodes_by_dist_date, [undefined, {{2020,7,1},{12,0,0}}], ok),
+            ok = meck:expect(erline_dht_helper, change_datetime, ['_', '_'], {{2020,7,1},{12,0,0}})
+        end,
+        fun(_) ->
+            true = meck:validate([erline_dht_db_ets, erline_dht_helper]),
+            ok = meck:unload([erline_dht_db_ets, erline_dht_helper])
+        end,
+        [{"Removable nodes are the same amount as threshold",
+            fun() ->
+                ?assertEqual(
+                    ok,
+                    erline_dht_bucket:clear_not_assigned_nodes(0, State#state{not_assigned_clearing_threshold = 3})
+                ),
+                ?assertEqual(
+                    3,
+                    meck:num_calls(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, ['_', '_'])
+                ),
+                ok = meck:reset(erline_dht_db_ets)
+            end
+        },
+        {"Removable nodes are greater than threshold.",
+            fun() ->
+                ?assertEqual(
+                    ok,
+                    erline_dht_bucket:clear_not_assigned_nodes(0, State#state{not_assigned_clearing_threshold = 2})
+                ),
+                ?assertEqual(
+                    3,
+                    meck:num_calls(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, ['_', '_'])
+                ),
+                ok = meck:reset(erline_dht_db_ets)
+            end
+        },
+        {"Removable nodes are lesser than threshold.",
+            fun() ->
+                ?assertEqual(
+                    ok,
+                    erline_dht_bucket:clear_not_assigned_nodes(0, State#state{not_assigned_clearing_threshold = 5})
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, ['_', '_'])
+                ),
+                ok = meck:reset(erline_dht_db_ets)
+            end
+        },
+        {"Threshold is not exceeded.",
+            fun() ->
+                ?assertEqual(
+                    ok,
+                    erline_dht_bucket:clear_not_assigned_nodes(0, State#state{not_assigned_clearing_threshold = 7})
+                ),
+                ?assertEqual(
+                    0,
+                    meck:num_calls(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, ['_', '_'])
+                ),
+                ok = meck:reset(erline_dht_db_ets)
+            end
+        },
+        {"Clear nodes without distance only.",
+            fun() ->
+                ?assertEqual(
+                    ok,
+                    erline_dht_bucket:clear_not_assigned_nodes(State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, delete_from_not_assigned_nodes_by_dist_date, [undefined, {{2020,7,1},{12,0,0}}])
+                )
+            end
+        }]
+    }.
 
