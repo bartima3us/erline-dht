@@ -19,6 +19,7 @@
     add_node/3,
     get_peers/1,
     get_peers/3,
+    get_port/0,
     get_event_mgr_pid/0,
     get_all_nodes_in_bucket/1,
     get_not_assigned_nodes/0,
@@ -134,6 +135,15 @@ get_peers(Ip, Port, InfoHash) ->
 
 
 %%  @doc
+%%  Returns UDP port of the client.
+%%
+-spec get_port() -> inet:port_number().
+
+get_port() ->
+    gen_server:call(?SERVER, get_port).
+
+
+%%  @doc
 %%  Returns event manager pid.
 %%
 -spec get_event_mgr_pid() -> pid().
@@ -193,7 +203,11 @@ get_peers_searches() ->
 %% @end
 %%--------------------------------------------------------------------
 init([MyNodeHash]) ->
-    {ok, Socket} = gen_udp:open(0, [binary, {active, true}]),
+    SocketParams = [binary, {active, true}],
+    {ok, Socket} = case gen_udp:open(erline_dht:get_env(port, 0), SocketParams) of
+        {ok, SockPort}      -> {ok, SockPort};
+        {error, eaddrinuse} -> gen_udp:open(0, SocketParams)
+    end,
     Buckets = lists:foldl(fun (Distance, AccBuckets) ->
         NewBucket = #bucket{
             check_timer = schedule_bucket_check(Distance),
@@ -243,6 +257,10 @@ init([MyNodeHash]) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
+handle_call(get_port, _From, State = #state{socket = Socket}) ->
+    {ok, Port} = inet:port(Socket),
+    {reply, Port, State};
+
 handle_call(get_event_mgr_pid, _From, State = #state{event_mgr_pid = EventMgrPid}) ->
     {reply, EventMgrPid, State};
 
