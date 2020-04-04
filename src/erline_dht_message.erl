@@ -106,7 +106,7 @@ send_get_peers(Ip, Port, Socket, TransactionId, MyNodeId, InfoHash) ->
 -spec ping_request(
     TransactionId :: tx_id(),
     NodeId        :: binary()
-) -> binary().
+) -> Request :: binary().
 
 ping_request(TransactionId, NodeId) ->
     Args = [
@@ -122,7 +122,7 @@ ping_request(TransactionId, NodeId) ->
 -spec ping_response(
     TransactionId :: tx_id(),
     NodeId        :: binary()
-) -> binary().
+) -> Response :: binary().
 
 ping_response(TransactionId, NodeId) ->
     Args = [
@@ -139,7 +139,7 @@ ping_response(TransactionId, NodeId) ->
     TransactionId :: tx_id(),
     NodeId        :: binary(),
     Target        :: binary()
-) -> binary().
+) -> Request :: binary().
 
 find_node_request(TransactionId, NodeId, Target) ->
     Args = [
@@ -157,7 +157,7 @@ find_node_request(TransactionId, NodeId, Target) ->
     TransactionId :: tx_id(),
     NodeId        :: binary(),
     Nodes         :: binary()
-) -> binary().
+) -> Response :: binary().
 
 find_node_response(TransactionId, NodeId, Nodes) ->
     Args = [
@@ -175,7 +175,7 @@ find_node_response(TransactionId, NodeId, Nodes) ->
     TransactionId :: tx_id(),
     NodeId        :: binary(),
     InfoHash      :: binary()
-) -> binary().
+) -> Request :: binary().
 
 get_peers_request(TransactionId, NodeId, InfoHash) ->
     Args = [
@@ -195,13 +195,13 @@ get_peers_request(TransactionId, NodeId, InfoHash) ->
         NodeId        :: binary(),
         Token         :: binary(),
         Values        :: [binary()]
-    ) -> binary();
+    ) -> Response :: binary();
     (
         TransactionId :: tx_id(),
         NodeId        :: binary(),
         Token         :: binary(),
         Nodes         :: binary()
-    ) -> binary().
+    ) -> Response :: binary().
 
 get_peers_response(TransactionId, NodeId, Token, Values) when is_list(Values) ->
     Args = [
@@ -232,7 +232,7 @@ get_peers_response(TransactionId, NodeId, Token, Nodes) ->
     InfoHash      :: binary(),
     Port          :: inet:port_number(),
     Token         :: binary()
-) -> binary().
+) -> Request :: binary().
 
 announce_peer_request(TransactionId, NodeId, ImpliedPort, InfoHash, Port, Token) when
     ImpliedPort =:= 0;
@@ -255,7 +255,7 @@ announce_peer_request(TransactionId, NodeId, ImpliedPort, InfoHash, Port, Token)
 -spec announce_peer_response(
     TransactionId :: tx_id(),
     NodeId        :: binary()
-) -> binary().
+) -> Response :: binary().
 
 announce_peer_response(TransactionId, NodeId) ->
     Args = [
@@ -272,7 +272,7 @@ announce_peer_response(TransactionId, NodeId) ->
     TransactionId       :: tx_id(),
     ErrorCode           :: krpc_error_code(),
     ErrorDescription    :: binary()
-) -> binary().
+) -> Response :: binary().
 
 error_response(TransactionId, ErrorCode, ErrorDescription) when
     ErrorCode =:= 201;
@@ -464,6 +464,5 @@ socket_send(Socket, Ip, Port, Payload) ->
             timer:sleep(5000),
             socket_send(Socket, Ip, Port, Payload)
     end.
-
 
 

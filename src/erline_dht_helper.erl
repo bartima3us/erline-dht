@@ -23,36 +23,43 @@
 
 %%  @doc
 %%  Get distance (in integer) between two same length hashes.
-%%  1 is the farthest, 160 is the nearest.
+%%  0 is the nearest (actually - the same), 160 is the farthest.
 %%  @end
-get_distance(Hash, NodeHash) when
-    is_binary(Hash),
-    is_binary(NodeHash),
-    erlang:byte_size(Hash) =/= erlang:byte_size(NodeHash)
-    ->
-    {error, {different_hash_length, Hash, NodeHash}};
+-spec get_distance(
+    Hash1 :: binary(),
+    Hash2 :: binary()
+) -> {ok, Distance :: distance()} |
+     {error, {malformed_hashes, Hash :: binary(), Hash2 :: binary}} |
+     {error, {different_hash_length, Hash :: binary(), Hash2 :: binary}}.
 
-get_distance(Hash, NodeHash) when is_binary(Hash), is_binary(NodeHash), Hash =:= NodeHash ->
+get_distance(Hash1, Hash2) when
+    is_binary(Hash1),
+    is_binary(Hash2),
+    erlang:byte_size(Hash1) =/= erlang:byte_size(Hash2)
+    ->
+    {error, {different_hash_length, Hash1, Hash2}};
+
+get_distance(Hash1, Hash2) when is_binary(Hash1), is_binary(Hash2), Hash1 =:= Hash2 ->
     {ok, 0};
 
-get_distance(Hash, NodeHash) when is_binary(Hash), is_binary(NodeHash) ->
-    {ok, 161 - get_distance(Hash, NodeHash, 0)};
+get_distance(Hash1, Hash2) when is_binary(Hash1), is_binary(Hash2) ->
+    {ok, erlang:bit_size(Hash1) + 1 - get_distance(Hash1, Hash2, 0)};
 
-get_distance(Hash, NodeHash) ->
-    {error, {malformed_hashes, Hash, NodeHash}}.
+get_distance(Hash1, Hash2) ->
+    {error, {malformed_hashes, Hash1, Hash2}}.
 
-get_distance(<<Hash:1/binary, HashRest/binary>>, <<NodeHash:1/binary, NodeHashRest/binary>>, Result) when
-    Hash =:= NodeHash ->
-    get_distance(HashRest, NodeHashRest, Result + 1);
+get_distance(<<Hash1:1/binary, Hash1Rest/binary>>, <<Hash2:1/binary, Hash2Rest/binary>>, Result) when
+    Hash1 =:= Hash2 ->
+    get_distance(Hash1Rest, Hash2Rest, Result + 1);
 
-get_distance(<<Hash:1/binary, _HashRest/binary>>, <<NodeHash:1/binary, _NodeHashRest/binary>>, Result) when
-    Hash =/= NodeHash
+get_distance(<<Hash1:1/binary, _Hash1Rest/binary>>, <<Hash2:1/binary, _Hash2Rest/binary>>, Result) when
+    Hash1 =/= Hash2
     ->
-    <<HashInt:8>> = Hash,
-    <<NodeHashInt:8>> = NodeHash,
+    <<Hash1Int:8>> = Hash1,
+    <<Hash2Int:8>> = Hash2,
     DiffBitPosition = lists:foldl(fun
         (Shift, 0) ->
-            case ((HashInt bxor NodeHashInt) bsl Shift) band 100000000 of
+            case ((Hash1Int bxor Hash2Int) bsl Shift) band 100000000 of
                 0 -> 0;
                 _ -> Shift
             end;
@@ -65,7 +72,13 @@ get_distance(<<Hash:1/binary, _HashRest/binary>>, <<NodeHash:1/binary, _NodeHash
 %%  @doc
 %%  Get a new hash of the specified distance by the specified hash.
 %%  @end
-%%  @todo not used anymore?
+-spec get_hash_of_distance( % @todo test
+    Hash     :: binary(),
+    Distance :: distance()
+) -> {ok, NewHash :: binary()} |
+     {error, {malformed_hashes, Hash :: binary()}} |
+     {error, {hash_too_short, Hash :: binary()}}.
+
 get_hash_of_distance(Hash, _Distance) when not is_binary(Hash) ->
     {error, {malformed_hash, Hash}};
 
@@ -81,9 +94,13 @@ get_hash_of_distance(Hash, Distance) ->
     {ok, <<SamePart/bits, DiffBit/bits, Rest/bits>>}.
 
 
-%%
-%%
-%%
+%%  @doc
+%%  Parse compact node info binary.
+%%  @end
+-spec parse_compact_node_info(
+    Info :: binary()
+) -> [ParsedCompactNodeInfo :: parsed_compact_node_info()].
+
 parse_compact_node_info(Info) ->
     parse_compact_node_info(Info, []).
 
@@ -97,9 +114,13 @@ parse_compact_node_info(<<Hash:20/binary, Ip:4/binary, Port:2/binary, Rest/binar
     parse_compact_node_info(Rest, [Node | Result]).
 
 
-%%
-%%
-%%
+%%  @doc
+%%  Parse peer info list of binaries.
+%%  @end
+-spec parse_peer_info(
+    PeerInfoList :: [binary()]
+) -> [ParsedPeerInfo :: parsed_peer_info()].
+
 parse_peer_info(PeerInfoList) ->
     parse_peer_info(PeerInfoList, []).
 
@@ -113,18 +134,27 @@ parse_peer_info([<<Ip:4/binary, Port:2/binary>> | PeerInfoList], Result) ->
     parse_peer_info(PeerInfoList, [Peer | Result]).
 
 
-%%
-%%
-%%
+%%  @doc
+%%  Return datetime's difference (DateTime1 - DateTime2) in seconds.
+%%  @end
+-spec datetime_diff(
+    DateTime1 :: calendar:datetime(),
+    DateTime2 :: calendar:datetime()
+) -> Seconds :: integer().
+
 datetime_diff(DateTime1, DateTime2) ->
     calendar:datetime_to_gregorian_seconds(DateTime1) - calendar:datetime_to_gregorian_seconds(DateTime2).
 
 
-%%
-%%
-%%
+%%  @doc
+%%  Return changed datetime with specified seconds subtracted.
+%%  @end
+-spec change_datetime(
+    DateTime :: calendar:datetime(),
+    Seconds  :: integer()
+) -> NewDateTime :: calendar:datetime().
+
 change_datetime(DateTime, Seconds) ->
     calendar:gregorian_seconds_to_datetime(calendar:datetime_to_gregorian_seconds(DateTime) - Seconds).
-
 
 
