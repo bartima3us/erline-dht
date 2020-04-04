@@ -138,7 +138,7 @@ get_peers(Ip, Port, InfoHash) ->
 %%  @doc
 %%  Returns UDP port of the client.
 %%  @end
--spec get_port() -> inet:port_number().
+-spec get_port() -> Port :: inet:port_number().
 
 get_port() ->
     gen_server:call(?SERVER, get_port).
@@ -147,7 +147,7 @@ get_port() ->
 %%  @doc
 %%  Returns event manager pid.
 %%  @end
--spec get_event_mgr_pid() -> pid().
+-spec get_event_mgr_pid() -> EventMgrPid :: pid().
 
 get_event_mgr_pid() ->
     gen_server:call(?SERVER, get_event_mgr_pid).
@@ -197,11 +197,13 @@ get_buckets_filling() ->
 %% @end
 %%--------------------------------------------------------------------
 init([MyNodeHash]) ->
+    % Open UDP socket
     SocketParams = [binary, {active, true}],
     {ok, Socket} = case gen_udp:open(erline_dht:get_env(port, 0), SocketParams) of
         {ok, SockPort}      -> {ok, SockPort};
         {error, eaddrinuse} -> gen_udp:open(0, SocketParams)
     end,
+    % Create buckets
     Buckets = lists:foldl(fun (Distance, AccBuckets) ->
         NewBucket = #bucket{
             check_timer = schedule_bucket_check(Distance),
@@ -210,9 +212,12 @@ init([MyNodeHash]) ->
         },
         [NewBucket | AccBuckets]
     end, [], lists:seq(0, erlang:bit_size(MyNodeHash))),
+    % Create DB
     DbMod = erline_dht:get_env(db_mod, erline_dht_db_ets),
     ok = DbMod:init(),
+    % Start event manager
     {ok, EventMgrPid} = gen_event:start_link(),
+    % Schedule nodes clearing scheduler if necessary
     ClearNotAssignedRef = case erline_dht:get_env(limit_nodes, true) of
         true  -> schedule_clear_not_assigned_nodes();
         false -> undefined
@@ -347,6 +352,7 @@ handle_cast({add_node, Ip, Port, Hash}, State = #state{}) ->
 %
 handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{}) ->
     #state{
+        socket        = Socket,
         buckets       = Buckets,
         db_mod        = DbMod,
         event_mgr_pid = EventMgrPid
@@ -355,7 +361,8 @@ handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{}) ->
         {undefined, undefined} ->
             % First check in the local cache for a peer
             LocalPeers = find_local_peers_by_info_hash(InfoHash, State),
-            ok = gen_event:notify(EventMgrPid, {peers, InfoHash, LocalPeers}),
+            {ok, {LocalIp, LocalPort} = inet:sockname(Socket),
+            ok = gen_event:notify(EventMgrPid, {get_peers, r, LocalIp, LocalPort, {peers, InfoHash, LocalPeers}}),
             io:format("xxxxxx LocalPeers = ~p~n", [LocalPeers]),
             % Flatten all nodes in all buckets
             lists:foldl(fun (#bucket{nodes = Nodes}, NodesAcc) ->
@@ -417,12 +424,14 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         %
         % Handle ping query
         {ok, ping, q, NodeHash, GotTxId} ->
+            ok = gen_event:notify(EventMgrPid, {ping, q, Ip, Port, NodeHash}),
             ok = erline_dht_message:respond_ping(Ip, Port, Socket, MyNodeHash, GotTxId),
             ok = add_node(Ip, Port, NodeHash),
             State;
         %
         % Handle ping response
         {ok, ping, r, NewNodeHash, NewActiveTx} ->
+            ok = gen_event:notify(EventMgrPid, {ping, r, Ip, Port, NewNodeHash}),
             case erline_dht_helper:get_distance(MyNodeHash, NewNodeHash) of
                 {ok, NewDist} ->
                     Params = [
@@ -467,10 +476,12 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         % @todo implement
         % Handle find_node query
         {ok, find_node, q, _, _} ->
+            ok = gen_event:notify(EventMgrPid, {find_node, q, Ip, Port, <<>>}),
             State;
         %
         % Handle find_node response
         {ok, find_node, r, Nodes, NewActiveTx} ->
+            ok = gen_event:notify(EventMgrPid, {find_node, r, Ip, Port, Nodes}),
             ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
                 % Can't assume that node we got is live so we need to ping it.
                 ok = add_node(FoundIp, FoundPort, FoundedHash)
@@ -483,10 +494,11 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         % @todo implement
         % Handle find_node query
         {ok, get_peers, q, _, _} ->
+            ok = gen_event:notify(EventMgrPid, {get_peers, q, Ip, Port, <<>>}),
             State;
         %
         % Handle get_peers response
-        {ok, get_peers, r, {What, TxId, NodesOrValues, Token}, NewActiveTx} ->
+        {ok, get_peers, r, {What, TxId, NodesOrPeers, Token}, NewActiveTx} ->
             % Update last changed
             NewState0 = case DbMod:get_info_hash(Ip, Port, TxId) of
                 false ->
@@ -497,6 +509,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
                     case What of
                         % Continue search
                         nodes ->
+                            ok = gen_event:notify(EventMgrPid, {get_peers, r, Ip, Port, {nodes, InfoHash, NodesOrPeers}}),
                             ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
                                 case DbMod:get_requested_node(FoundIp, FoundPort, InfoHash) of
                                     [_|_]  ->
@@ -505,16 +518,16 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
                                         ok = add_node(FoundIp, FoundPort, FoundedHash),
                                         ok = get_peers(FoundIp, FoundPort, InfoHash)
                                 end
-                            end, NodesOrValues),
+                            end, NodesOrPeers),
                             State;
                         % Stop search and save info hashes
-                        values ->
-                            io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, NodesOrValues]),
-                            ok = gen_event:notify(EventMgrPid, {peers, InfoHash, NodesOrValues}),
+                        peers ->
+                            io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, NodesOrPeers]),
+                            ok = gen_event:notify(EventMgrPid, {get_peers, r, Ip, Port, {peers, InfoHash, NodesOrPeers}}),
                             lists:foldl(fun (#{ip := FoundIp, port := FoundPort}, StateAcc) ->
                                 ok = add_node(FoundIp, FoundPort),
                                 add_peer(InfoHash, FoundIp, FoundPort, StateAcc)
-                            end, State, NodesOrValues)
+                            end, State, NodesOrPeers)
                     end
             end,
             Params = [
@@ -526,14 +539,17 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         % @todo implement
         % Handle announce_peer query
         {ok, announce_peer, q, _Data, _GotTxId} ->
+            ok = gen_event:notify(EventMgrPid, {announce_peer, q, Ip, Port, <<>>}),
             update_node(Ip, Port, [{last_changed, calendar:local_time()}], State);
         % @todo implement
         % Handle announce_peer response
         {ok, announce_peer, r, _, _} ->
+            ok = gen_event:notify(EventMgrPid, {announce_peer, r, Ip, Port, <<>>}),
             State;
         %
         % Handle errors
-        {error, {krpc_error, _Reason}, NewActiveTx} ->
+        {error, {krpc_error, Reason}, NewActiveTx} ->
+            ok = gen_event:notify(EventMgrPid, {error, r, Ip, Port, Reason}),
             Params = [
                 {last_changed,        calendar:local_time()},
                 {active_transactions, NewActiveTx}
@@ -736,8 +752,9 @@ get_bucket_and_node(Ip, Port, [Bucket = #bucket{nodes = Nodes} | Buckets]) ->
 
 
 %%  @private
+%%  @doc
 %%  Increase node current transaction ID by 1.
-%%
+%%  @end
 -spec update_transaction_id(
     Node :: #node{}
 ) -> NewNode :: #node{}.
@@ -872,43 +889,48 @@ update_bucket(Distance, Params, State = #state{buckets = Buckets}) ->
     end, Bucket, Params),
     State#state{buckets = lists:keyreplace(Distance, #bucket.distance, Buckets, NewBucket)}.
 
-%%
-%%  @todo test
-%%
+
+%%  @private
+%%  @doc
+%%  Schedule next `{bucket_check, Distance}` message.
+%%  @end
 -spec schedule_bucket_check(
     Distance :: distance()
-) -> reference().
+) -> TimerRef :: reference().
 
 schedule_bucket_check(Distance) ->
     Time = crypto:rand_uniform(?BUCKET_CHECK_LOW_TIME, ?BUCKET_CHECK_HIGH_TIME),
     erlang:send_after(Time, self(), {bucket_check, Distance}).
 
 
-%%
-%%  @todo test
-%%
+%%  @private
+%%  @doc
+%%  Schedule next `{bucket_ping, Distance}` message.
+%%  @end
 -spec schedule_bucket_ping(
     Distance :: distance()
-) -> reference().
+) -> TimerRef :: reference().
 
 schedule_bucket_ping(Distance) ->
     Time = crypto:rand_uniform(?BUCKET_PING_LOW_TIME, ?BUCKET_PING_HIGH_TIME),
     erlang:send_after(Time, self(), {bucket_ping, Distance}).
 
 
-%%
-%%  @todo test
-%%
--spec schedule_get_peers_searches_check() -> reference().
+%%  @private
+%%  @doc
+%%  Schedule next `get_peers_searches_check` message.
+%%  @end
+-spec schedule_get_peers_searches_check() -> TimerRef :: reference().
 
 schedule_get_peers_searches_check() ->
     erlang:send_after(?GET_PEERS_SEARCH_CHECK_TIME, self(), get_peers_searches_check).
 
 
-%%
-%%  @todo test
-%%
--spec schedule_clear_not_assigned_nodes() -> reference().
+%%  @private
+%%  @doc
+%%  Schedule next `clear_not_assigned_nodes` message.
+%%  @end
+-spec schedule_clear_not_assigned_nodes() -> TimerRef :: reference().
 
 schedule_clear_not_assigned_nodes() ->
     erlang:send_after(?CLEAR_NOT_ASSIGNED_NODES_TIME, self(), clear_not_assigned_nodes).
@@ -920,7 +942,7 @@ schedule_clear_not_assigned_nodes() ->
 -spec maybe_clear_bucket(
     Distance :: distance(),
     State    :: #state{}
-) -> {boolean(), NewState :: #state{}}.
+) -> {IsEnoughSpaceInBucket :: boolean(), NewState :: #state{}}.
 
 maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
     {value, #bucket{nodes = Nodes}} = lists:keysearch(Distance, #bucket.distance, Buckets),
@@ -972,7 +994,7 @@ maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
 -spec find_local_peers_by_info_hash(
     InfoHash :: binary(),
     State    :: #state{}
-) -> [#{ip => inet:ip_address(), port => inet:port_number()}].
+) -> [Peer :: #{ip => inet:ip_address(), port => inet:port_number()}].
 
 find_local_peers_by_info_hash(InfoHash, #state{info_hashes = InfoHashes}) ->
     case lists:keysearch(InfoHash, #info_hash.info_hash, InfoHashes) of
@@ -1011,52 +1033,6 @@ add_peer(InfoHashBin, Ip, Port, State = #state{info_hashes = InfoHashes}) ->
             NewInfoHash = #info_hash{info_hash = InfoHashBin, peers = [{Ip, Port}]},
             State#state{info_hashes = [NewInfoHash | InfoHashes]}
     end.
-
-
-%%%%
-%%%%
-%%%%
-%%-spec is_enough_space_for_node(
-%%    Node    :: #node{},
-%%    State   :: #state{}
-%%) -> {boolean(), boolean()}.
-%%
-%%is_enough_space_for_node(#node{distance = Distance}, State = #state{}) ->
-%%    #state{
-%%        db_mod                  = DbMod,
-%%        k                       = K,
-%%        buckets                 = Buckets,
-%%        max_nodes_for_distance  = MaxNodes
-%%    } = State,
-%%    IsEnoughSpaceInBucket = case Distance of
-%%        undefined ->
-%%            true;
-%%        _ ->
-%%            {value, #bucket{nodes = NodesInBucket}} = lists:keysearch(Distance, #bucket.distance, Buckets),
-%%            (erlang:length(NodesInBucket) < K)
-%%    end,
-%%    IsEnoughSpaceInNotAssigned = (erlang:length(DbMod:get_not_assigned_nodes(Distance)) < MaxNodes),
-%%    (IsEnoughSpaceInBucket orelse IsEnoughSpaceInNotAssigned).
-%%
-%%
-%%
-%%%%
-%%%%
-%%%%
-%%-spec safe_insert_to_not_assigned_nodes(
-%%    Node    :: #node{},
-%%    State   :: #state{}
-%%) -> ok.
-%%
-%%safe_insert_to_not_assigned_nodes(Node, #state{db_mod = DbMod, max_nodes_for_distance = MaxNodes}) ->
-%%    #node{distance = Distance} = Node,
-%%    case erlang:length(DbMod:get_not_assigned_nodes(Distance)) of
-%%        CurrNum when CurrNum < MaxNodes ->
-%%            true = DbMod:insert_to_not_assigned_nodes(Node),
-%%            ok;
-%%        _CurrNum ->
-%%            ok
-%%    end.
 
 
 %%  @private

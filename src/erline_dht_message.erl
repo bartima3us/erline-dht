@@ -194,7 +194,7 @@ get_peers_request(TransactionId, NodeId, InfoHash) ->
         TransactionId :: tx_id(),
         NodeId        :: binary(),
         Token         :: binary(),
-        Values        :: [binary()]
+        Peers         :: [binary()]
     ) -> Response :: binary();
     (
         TransactionId :: tx_id(),
@@ -203,11 +203,11 @@ get_peers_request(TransactionId, NodeId, InfoHash) ->
         Nodes         :: binary()
     ) -> Response :: binary().
 
-get_peers_response(TransactionId, NodeId, Token, Values) when is_list(Values) ->
+get_peers_response(TransactionId, NodeId, Token, Peers) when is_list(Peers) ->
     Args = [
         {<<"id">>, NodeId},
         {<<"token">>, Token},
-        {<<"values">>, {list, Values}}
+        {<<"values">>, {list, Peers}}
     ],
     Response = krpc_request(TransactionId, r, Args),
     erline_dht_bencoding:encode(Response);
@@ -297,8 +297,8 @@ error_response(TransactionId, ErrorCode, ErrorDescription) when
     {ok, ping, r, Hash :: binary(), NewActiveTx :: [active_tx()]} |
     {ok, find_node, r, [parsed_compact_node_info()], NewActiveTx :: [active_tx()]} |
     {ok, get_peers, r,
-        {nodes,  TxId :: tx_id(), [parsed_compact_node_info()], PeerToken :: binary} |
-        {values, TxId :: tx_id(), [parsed_peer_info()], PeerToken :: binary},
+        {nodes, TxId :: tx_id(), [parsed_compact_node_info()], PeerToken :: binary} |
+        {peers, TxId :: tx_id(), [parsed_peer_info()], PeerToken :: binary},
         NewActiveTx :: [active_tx()]} |
     {error, {krpc_error, Error :: [term()]}, NewActiveTx :: [active_tx()]} | % Error :: [ErrorCode :: krpc_error_code(), Description :: binary()]
     {error, {bad_query, Response :: term()}} |
@@ -377,8 +377,8 @@ parse_krpc_response(Response, ActiveTxs) ->
         Type            :: get_peers,
         TransactionId   :: tx_id(),
         Resp            :: dict:dict()
-    ) -> {nodes,  TxId :: tx_id(), [parsed_compact_node_info()], PeerToken :: binary} |
-         {values, TxId :: tx_id(), [parsed_peer_info()], PeerToken :: binary}.
+    ) -> {nodes, TxId :: tx_id(), [parsed_compact_node_info()], PeerToken :: binary} |
+         {peers, TxId :: tx_id(), [parsed_peer_info()], PeerToken :: binary}.
 
 parse_response_dict(ping, _TransactionId, Resp) ->
     {ok, NodeHash} = dict:find(<<"id">>, Resp),
@@ -400,7 +400,7 @@ parse_response_dict(get_peers, TransactionId, Resp) ->
     case dict:find(<<"values">>, Resp) of
         {ok, {list, PeerInfoList}} ->
             ParsedPeerInfoList = erline_dht_helper:parse_peer_info(PeerInfoList),
-            {values, TransactionId, ParsedPeerInfoList, PeerToken};
+            {peers, TransactionId, ParsedPeerInfoList, PeerToken};
         error ->
             case dict:find(<<"nodes">>, Resp) of
                 {ok, CompactNodeInfo} ->
