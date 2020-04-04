@@ -40,6 +40,8 @@
 -ifdef(TEST).
 -export([
     update_transaction_id/1,
+    find_local_peers_by_info_hash/2,
+    add_peer/4,
     clear_peers_searches/1,
     update_bucket_nodes_status/2,
     init_not_active_nodes_replacement/2,
@@ -963,9 +965,10 @@ maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
 %%find_n_closest_nodes(Hash, N, Buckets, Result)
 
 
-%%
-%%  @todo test
-%%
+%%  @private
+%%  @doc
+%%  Find peers in the state by the specified info hash.
+%%  @end
 -spec find_local_peers_by_info_hash(
     InfoHash :: binary(),
     State    :: #state{}
@@ -982,9 +985,11 @@ find_local_peers_by_info_hash(InfoHash, #state{info_hashes = InfoHashes}) ->
     end.
 
 
-%%
-%%  @todo test
-%%
+%%  @private
+%%  @doc
+%%  Add a new peer to info hashes list.
+%%  Create info hash if it does not exist.
+%%  @end
 -spec add_peer(
     InfoHashBin :: binary(),
     Ip          :: inet:ip_address(),

@@ -115,6 +115,92 @@ update_transaction_id_test_() ->
 %%
 %%
 %%
+find_local_peers_by_info_hash_test_() ->
+    StateWithInfoHash = #state{
+        info_hashes = [
+            #info_hash{
+                info_hash = <<"h45h1">>,
+                peers     = [{{12,34,92,156}, 6863}, {{12,34,92,157}, 6864}]
+            }
+        ]
+    },
+    {setup,
+        fun() -> ok end,
+        fun(_) -> ok end,
+        [{"Get peers from existing info hash peers list.",
+            fun() ->
+                ?assertEqual(
+                    [
+                        #{ip => {12,34,92,156}, port => 6863},
+                        #{ip => {12,34,92,157}, port => 6864}
+                    ],
+                    erline_dht_bucket:find_local_peers_by_info_hash(<<"h45h1">>, StateWithInfoHash)
+                )
+            end
+        },
+        {"Info hash not found.",
+            fun() ->
+                ?assertEqual(
+                    [],
+                    erline_dht_bucket:find_local_peers_by_info_hash(<<"h45h2">>, StateWithInfoHash)
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
+add_peer_test_() ->
+    StateWithInfoHash = #state{
+        info_hashes = [
+            #info_hash{
+                info_hash = <<"h45h1">>,
+                peers     = [{{12,34,92,156}, 6863}]
+            }
+        ]
+    },
+    {setup,
+        fun() -> ok end,
+        fun(_) -> ok end,
+        [{"Add new peer and new info hash.",
+            fun() ->
+                ?assertEqual(
+                    StateWithInfoHash,
+                    erline_dht_bucket:add_peer(<<"h45h1">>, {12,34,92,156}, 6863, #state{})
+                )
+            end
+        },
+        {"Add new peer to existing info hash.",
+            fun() ->
+                ?assertEqual(
+                    #state{
+                        info_hashes = [
+                            #info_hash{
+                                info_hash = <<"h45h1">>,
+                                peers     = [{{12,34,92,157}, 6864}, {{12,34,92,156}, 6863}]
+                            }
+                        ]
+                    },
+                    erline_dht_bucket:add_peer(<<"h45h1">>, {12,34,92,157}, 6864, StateWithInfoHash)
+                )
+            end
+        },
+        {"Add existing peer to existing info hash.",
+            fun() ->
+                ?assertEqual(
+                    StateWithInfoHash,
+                    erline_dht_bucket:add_peer(<<"h45h1">>, {12,34,92,156}, 6863, StateWithInfoHash)
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
 clear_peers_searches_test_() ->
     {setup,
         fun() ->
