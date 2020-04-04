@@ -29,7 +29,8 @@
 -record(node, {
     ip_port                             :: {inet:ip_address(), inet:port_number()},
     hash                                :: binary(),
-    token                               :: binary(),
+    token_sent                          :: binary(),
+    token_received                      :: binary(),
     last_changed                        :: calendar:datetime(),
     transaction_id      = <<0,0>>       :: tx_id(),
     active_transactions = []            :: [{request(), tx_id()}],

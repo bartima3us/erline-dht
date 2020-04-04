@@ -516,7 +516,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
                     end
             end,
             Params = [
-                {token,               Token},
+                {token_received,      Token},
                 {last_changed,        calendar:local_time()},
                 {active_transactions, NewActiveTx}
             ],
@@ -674,7 +674,7 @@ do_find_node_async(Bucket, Node = #node{ip_port = {Ip, Port}}, Target, State = #
         {active_transactions, [{find_node, TxId} | CurrActiveTx]}
     ],
     NewState = update_node(Bucket, Node, Params, State),
-    ok = erline_dht_message:send_find_node(Ip, Port, Socket, MyNodeHash, TxId, Target),
+    ok = erline_dht_message:send_find_node(Ip, Port, Socket, TxId, MyNodeHash, Target),
     {ok, NewState}.
 
 
@@ -700,7 +700,7 @@ do_get_peers_async(Bucket, Node = #node{ip_port = {Ip, Port}}, InfoHash, State =
         {active_transactions, [{get_peers, TxId} | CurrActiveTx]}
     ],
     NewState = update_node(Bucket, Node, Params, State),
-    ok = erline_dht_message:send_get_peers(Ip, Port, Socket, MyNodeHash, TxId, InfoHash),
+    ok = erline_dht_message:send_get_peers(Ip, Port, Socket, TxId, MyNodeHash, InfoHash),
     {ok, TxId, NewState}.
 
 
@@ -759,7 +759,8 @@ update_transaction_id(Node = #node{transaction_id = LastTransactionIdBin}) ->
     Ip      :: inet:ip_address(),
     Port    :: inet:port_number(),
     Params  :: [{hash, Hash :: binary()} |
-                {token, Token :: binary()} |
+                {token_sent, TokenSent :: binary()} |
+                {token_received, TokenReceived :: binary()} |
                 {last_changed, LastChanged :: calendar:datetime()} |
                 {active_transactions, [ActiveTx :: active_tx()]} |
                 transaction_id |
@@ -785,8 +786,10 @@ update_node(Bucket, Node = #node{ip_port = {Ip, Port}}, Params, State = #state{}
                 {ok, Distance}   -> AccNode#node{hash = Hash, distance = Distance};
                 {error, _Reason} -> AccNode#node{hash = Hash}
             end;
-        ({token, Token}, AccNode) ->
-            AccNode#node{token = Token};
+        ({token_sent, TokenSent}, AccNode) ->
+            AccNode#node{token_sent = TokenSent};
+        ({token_received, TokenReceived}, AccNode) ->
+            AccNode#node{token_received = TokenReceived};
         ({last_changed, LastChanged}, AccNode) ->
             AccNode#node{last_changed = LastChanged};
         ({active_transactions, ActiveTx}, AccNode) ->

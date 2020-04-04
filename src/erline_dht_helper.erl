@@ -8,6 +8,7 @@
 %%%-------------------------------------------------------------------
 -module(erline_dht_helper).
 -author("bartimaeus").
+-include("erline_dht.hrl").
 
 %% API
 -export([
@@ -68,7 +69,7 @@ get_distance(<<Hash:1/binary, _HashRest/binary>>, <<NodeHash:1/binary, _NodeHash
 get_hash_of_distance(Hash, _Distance) when not is_binary(Hash) ->
     {error, {malformed_hash, Hash}};
 
-get_hash_of_distance(Hash, _Distance) when bit_size(Hash) < 160 ->
+get_hash_of_distance(Hash, Distance) when bit_size(Hash) < Distance ->
     {error, {hash_too_short, Hash}};
 
 get_hash_of_distance(Hash, Distance) ->
