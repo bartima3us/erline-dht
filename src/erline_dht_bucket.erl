@@ -14,7 +14,7 @@
 
 %% API
 -export([
-    start_link/1,
+    start_link/0,
     add_node/2,
     add_node/3,
     get_peers/1,
@@ -98,13 +98,10 @@
 %% Starts the server
 %% @end
 %%--------------------------------------------------------------------
--spec(start_link(
-    MyNodeHash :: binary()
-) ->
-    {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
+-spec start_link() -> {ok, Pid :: pid()} | ignore | {error, Reason :: term()}.
 
-start_link(MyNodeHash) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [MyNodeHash], []).
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 
 %%
@@ -196,7 +193,12 @@ get_buckets_filling() ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([MyNodeHash]) ->
+init([]) ->
+    % Get my node hash
+    MyNodeHash = case erline_dht:get_env(node_hash, 20) of
+        HashOpt when is_integer(HashOpt) -> crypto:strong_rand_bytes(23); % @todo use algorithm: http://www.bittorrent.org/beps/bep_0020.html
+        HashOpt when is_binary(HashOpt)  -> HashOpt
+    end,
     % Open UDP socket
     SocketParams = [binary, {active, true}],
     {ok, Socket} = case gen_udp:open(erline_dht:get_env(port, 0), SocketParams) of
@@ -361,7 +363,7 @@ handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{}) ->
         {undefined, undefined} ->
             % First check in the local cache for a peer
             LocalPeers = find_local_peers_by_info_hash(InfoHash, State),
-            {ok, {LocalIp, LocalPort} = inet:sockname(Socket),
+            {ok, {LocalIp, LocalPort}} = inet:sockname(Socket),
             ok = gen_event:notify(EventMgrPid, {get_peers, r, LocalIp, LocalPort, {peers, InfoHash, LocalPeers}}),
             io:format("xxxxxx LocalPeers = ~p~n", [LocalPeers]),
             % Flatten all nodes in all buckets

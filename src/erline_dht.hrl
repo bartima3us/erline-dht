@@ -8,10 +8,6 @@
 %%%-------------------------------------------------------------------
 -author("bartimaeus").
 
-% @todo parameterized
--define(MY_NODE_ID, <<169,246,141,183,17,96,15,191,158,252,221,69,218,231,8,97,231,8,214,41>>).
-%%-define(MY_NODE_ID, <<0,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>).
-
 -type status()                      :: suspicious | active | not_active.
 -type request()                     :: ping | find_node | get_peers | announce.
 -type tx_id()                       :: binary().
