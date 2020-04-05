@@ -39,6 +39,7 @@
 
 -ifdef(TEST).
 -export([
+    get_bucket_and_node/3,
     update_transaction_id/1,
     update_bucket/3,
     maybe_clear_bucket/2,
@@ -730,9 +731,11 @@ do_get_peers_async(Bucket, Node = #node{ip_port = {Ip, Port}}, InfoHash, State =
 %%% Internal functions
 %%%===================================================================
 
-%%
-%%  @todo test
-%%
+%%  @private
+%%  @doc
+%%  Check for a node in the not assigned nodes list.
+%%  If not found in the not assigned nodes list, check in a buckets.
+%%  @end
 -spec get_bucket_and_node(
     Ip      :: inet:ip_address(),
     Port    :: inet:port_number(),

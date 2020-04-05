@@ -81,6 +81,66 @@
 %%
 %%
 %%
+get_bucket_and_node_test_() ->
+    State = #state{
+        db_mod  =  erline_dht_db_ets,
+        buckets = [
+            #bucket{
+                distance = 1,
+                nodes    = [#node{ip_port = {{12,34,92,154}, 6861}}]
+            },
+            FoundBucket = #bucket{
+                distance = 2,
+                nodes    = [
+                    #node{ip_port = {{12,34,92,155}, 6862}},
+                    #node{ip_port = {{12,34,92,158}, 6865}}
+                ]
+            }
+        ]
+    },
+    {setup,
+        fun() ->
+            ok = meck:new(erline_dht_db_ets),
+            ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, fun
+                ({12,34,92,156}, 6863) -> [];
+                ({12,34,92,157}, 6864) -> [#node{ip_port = {{12,34,92,157}, 6864}}];
+                ({12,34,92,158}, 6865) -> []
+            end)
+        end,
+        fun(_) ->
+            true = meck:validate(erline_dht_db_ets),
+            ok = meck:unload(erline_dht_db_ets)
+        end,
+        [{"Node not found.",
+            fun() ->
+                ?assertEqual(
+                    false,
+                    erline_dht_bucket:get_bucket_and_node({12,34,92,156}, 6863, State)
+                )
+            end
+        },
+        {"Node is found in not assigned nodes list.",
+            fun() ->
+                ?assertEqual(
+                    {ok, false, #node{ip_port = {{12,34,92,157}, 6864}}},
+                    erline_dht_bucket:get_bucket_and_node({12,34,92,157}, 6864, State)
+                )
+            end
+        },
+        {"Node is found in a bucket.",
+            fun() ->
+                ?assertEqual(
+                    {ok, FoundBucket, #node{ip_port = {{12,34,92,158}, 6865}}},
+                    erline_dht_bucket:get_bucket_and_node({12,34,92,158}, 6865, State)
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
 update_transaction_id_test_() ->
     {setup,
         fun() -> ok end,
