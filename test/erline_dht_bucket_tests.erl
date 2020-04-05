@@ -115,6 +115,118 @@ update_transaction_id_test_() ->
 %%
 %%
 %%
+maybe_clear_bucket_test_() ->
+    {setup,
+        fun() ->
+            ok = meck:new(erline_dht_db_ets),
+            ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, fun (_, _) -> [] end),
+            ok = meck:expect(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_'], true)
+        end,
+        fun(_) ->
+            true = meck:validate(erline_dht_db_ets),
+            ok = meck:unload(erline_dht_db_ets)
+        end,
+        [{"Bucket is not full.",
+            fun() ->
+                State = #state{
+                    k       = 5,
+                    buckets = [
+                        #bucket{
+                            distance = 1,
+                            nodes    = [#node{}, #node{}, #node{}, #node{}]
+                        }
+                    ]
+                },
+                ?assertEqual(
+                    {true, State},
+                    erline_dht_bucket:maybe_clear_bucket(1, State)
+                ),
+                ?assertEqual(
+                    0,
+                    meck:num_calls(erline_dht_db_ets, get_not_assigned_node, ['_', '_'])
+                ),
+                ?assertEqual(
+                    0,
+                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_'])
+                )
+            end
+        },
+        {"Bucket is full. Not active node is not found.",
+            fun() ->
+                State = #state{
+                    k       = 4,
+                    buckets = [
+                        #bucket{
+                            distance = 1,
+                            nodes    = [#node{status = active}, #node{}, #node{}, #node{}]
+                        }
+                    ]
+                },
+                ?assertEqual(
+                    {false, State},
+                    erline_dht_bucket:maybe_clear_bucket(1, State)
+                ),
+                ?assertEqual(
+                    0,
+                    meck:num_calls(erline_dht_db_ets, get_not_assigned_node, ['_', '_'])
+                ),
+                ?assertEqual(
+                    0,
+                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_'])
+                )
+            end
+        },
+        {"Bucket is full. Not active node is moved to not assigned nodes list.",
+            fun() ->
+                State = #state{
+                    k       = 4,
+                    db_mod  = erline_dht_db_ets,
+                    buckets = [
+                        #bucket{
+                            distance = 1,
+                            nodes    = [
+                                #node{status = active},
+                                #node{},
+                                NodeToRemove = #node{ip_port = {{12,34,92,156}, 6863}, status = not_active, last_changed = {{2020,7,1},{9,0,0}}},
+                                #node{ip_port = {{12,34,92,157}, 6864}, status = not_active, last_changed = {{2020,7,1},{10,0,0}}}
+                            ]
+                        }
+                    ]
+                },
+                NewState = #state{
+                    k       = 4,
+                    db_mod  = erline_dht_db_ets,
+                    buckets = [
+                        #bucket{
+                            distance = 1,
+                            nodes    = [
+                                #node{status = active},
+                                #node{},
+                                #node{ip_port = {{12,34,92,157}, 6864}, status = not_active, last_changed = {{2020,7,1},{10,0,0}}}
+                            ]
+                        }
+                    ]
+                },
+                ?assertEqual(
+                    {true, NewState},
+                    erline_dht_bucket:maybe_clear_bucket(1, State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, get_not_assigned_node, [{12,34,92,156}, 6863])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, [NodeToRemove])
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
 find_local_peers_by_info_hash_test_() ->
     StateWithInfoHash = #state{
         info_hashes = [
@@ -249,21 +361,6 @@ clear_peers_searches_test_() ->
 %%
 %%
 update_bucket_nodes_status_test_() ->
-    State = #state{
-        db_mod  = erline_dht_db_ets,
-        buckets = [
-            #bucket{
-                distance = 0,
-                nodes = ?NODES_LIST
-            },
-            #bucket{
-                distance = 1,
-                nodes = [
-                    #node{ip_port = {{14,34,92,156}, 6863}, last_changed = {{2020,7,1},{12,0,0}}, status = active}
-                ]
-            }
-        ]
-    },
     {setup,
         fun() ->
             ok = meck:new([erline_dht_db_ets, erline_dht_helper, erline_dht_message]),
@@ -284,6 +381,21 @@ update_bucket_nodes_status_test_() ->
         end,
         [{"Update nodes statuses.",
             fun() ->
+                State = #state{
+                    db_mod  = erline_dht_db_ets,
+                    buckets = [
+                        #bucket{
+                            distance = 0,
+                            nodes = ?NODES_LIST
+                        },
+                        #bucket{
+                            distance = 1,
+                            nodes = [
+                                #node{ip_port = {{14,34,92,156}, 6863}, last_changed = {{2020,7,1},{12,0,0}}, status = active}
+                            ]
+                        }
+                    ]
+                },
                 NewState = #state{
                     db_mod  = erline_dht_db_ets,
                     buckets = [
@@ -382,7 +494,6 @@ update_bucket_nodes_status_test_() ->
 %%
 %%
 init_not_active_nodes_replacement_test_() ->
-    State = #state{k = 1, db_mod = erline_dht_db_ets},
     {setup,
         fun() ->
             ok = meck:new([erline_dht_db_ets, erline_dht_message]),
@@ -397,6 +508,10 @@ init_not_active_nodes_replacement_test_() ->
         end,
         [{"Initiate not actives nodes replacement.",
             fun() ->
+                State = #state{
+                    k      = 1,
+                    db_mod = erline_dht_db_ets
+                },
                 ?assertEqual(
                     State,
                     erline_dht_bucket:init_not_active_nodes_replacement(0, State)
@@ -422,7 +537,9 @@ init_not_active_nodes_replacement_test_() ->
 %%
 %%
 clear_not_assigned_nodes_test_() ->
-    State = #state{db_mod = erline_dht_db_ets},
+    State = #state{
+        db_mod = erline_dht_db_ets
+    },
     {setup,
         fun() ->
             ok = meck:new([erline_dht_db_ets, erline_dht_helper]),

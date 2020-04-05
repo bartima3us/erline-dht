@@ -40,6 +40,7 @@
 -ifdef(TEST).
 -export([
     update_transaction_id/1,
+    maybe_clear_bucket/2,
     find_local_peers_by_info_hash/2,
     add_peer/4,
     clear_peers_searches/1,
@@ -938,9 +939,11 @@ schedule_clear_not_assigned_nodes() ->
     erlang:send_after(?CLEAR_NOT_ASSIGNED_NODES_TIME, self(), clear_not_assigned_nodes).
 
 
-%%
-%%  @todo test
-%%
+%%  @private
+%%  @doc
+%%  Delete oldest not active node (if exists) from bucket if bucket is full.
+%%  Return the fact - whether bucket has available space now or not.
+%%  @end
 -spec maybe_clear_bucket(
     Distance :: distance(),
     State    :: #state{}
