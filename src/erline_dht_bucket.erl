@@ -40,6 +40,7 @@
 -ifdef(TEST).
 -export([
     update_transaction_id/1,
+    update_bucket/3,
     maybe_clear_bucket/2,
     find_local_peers_by_info_hash/2,
     add_peer/4,
@@ -869,9 +870,11 @@ update_node(Bucket, Node = #node{ip_port = {Ip, Port}}, Params, State = #state{}
     end.
 
 
-%%
-%%  @todo test
-%%
+%%  @private
+%%  @doc
+%%  Update bucket by specified parameters.
+%%  Return a new state with a new bucket.
+%%  @end
 -spec update_bucket(
     Distance    :: distance(),
     Params  :: [check_timer |
@@ -941,7 +944,7 @@ schedule_clear_not_assigned_nodes() ->
 
 %%  @private
 %%  @doc
-%%  Delete oldest not active node (if exists) from bucket if bucket is full.
+%%  Move oldest not active node (if exists) from bucket to not assigned nodes if bucket is full.
 %%  Return the fact - whether bucket has available space now or not.
 %%  @end
 -spec maybe_clear_bucket(

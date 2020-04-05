@@ -115,6 +115,65 @@ update_transaction_id_test_() ->
 %%
 %%
 %%
+update_bucket_test_() ->
+    State = #state{
+        buckets = [
+            #bucket{
+                distance = 1,
+                nodes    = [#node{ip_port = {{12,34,92,156}, 6863}}]
+            },
+            #bucket{
+                distance = 2,
+                nodes    = []
+            }
+        ]
+    },
+    {setup,
+        fun() -> ok end,
+        fun(_) -> ok end,
+        [{"Update bucket with all params.",
+            fun() ->
+                Params = [
+                    check_timer,
+                    ping_timer,
+                    {nodes, [#node{ip_port = {{12,34,92,156}, 6863}}, #node{ip_port = {{12,34,92,157}, 6864}}]}
+                ],
+                NewState = #state{buckets = NewBuckets} =  erline_dht_bucket:update_bucket(1, Params, State),
+                {value, #bucket{check_timer = CheckTimer, ping_timer = PingTimer}} = lists:keysearch(1, #bucket.distance, NewBuckets),
+                % Assertions
+                ?assert(
+                    erlang:is_reference(CheckTimer)
+                ),
+                ?assert(
+                    erlang:is_reference(PingTimer)
+                ),
+                ?assertEqual(
+                    #state{
+                        buckets = [
+                            #bucket{
+                                check_timer = CheckTimer,
+                                ping_timer  = PingTimer,
+                                distance    = 1,
+                                nodes       = [
+                                    #node{ip_port = {{12,34,92,156}, 6863}},
+                                    #node{ip_port = {{12,34,92,157}, 6864}}
+                                ]
+                            },
+                            #bucket{
+                                distance = 2,
+                                nodes    = []
+                            }
+                        ]
+                    },
+                    NewState
+                )
+            end
+        }]
+    }.
+
+%%
+%%
+%%
 maybe_clear_bucket_test_() ->
     {setup,
         fun() ->
@@ -137,6 +196,7 @@ maybe_clear_bucket_test_() ->
                         }
                     ]
                 },
+                % Assertions
                 ?assertEqual(
                     {true, State},
                     erline_dht_bucket:maybe_clear_bucket(1, State)
@@ -162,6 +222,7 @@ maybe_clear_bucket_test_() ->
                         }
                     ]
                 },
+                % Assertions
                 ?assertEqual(
                     {false, State},
                     erline_dht_bucket:maybe_clear_bucket(1, State)
@@ -207,6 +268,7 @@ maybe_clear_bucket_test_() ->
                         }
                     ]
                 },
+                % Assertions
                 ?assertEqual(
                     {true, NewState},
                     erline_dht_bucket:maybe_clear_bucket(1, State)
@@ -228,7 +290,7 @@ maybe_clear_bucket_test_() ->
 %%
 %%
 find_local_peers_by_info_hash_test_() ->
-    StateWithInfoHash = #state{
+    State = #state{
         info_hashes = [
             #info_hash{
                 info_hash = <<"h45h1">>,
@@ -246,7 +308,7 @@ find_local_peers_by_info_hash_test_() ->
                         #{ip => {12,34,92,156}, port => 6863},
                         #{ip => {12,34,92,157}, port => 6864}
                     ],
-                    erline_dht_bucket:find_local_peers_by_info_hash(<<"h45h1">>, StateWithInfoHash)
+                    erline_dht_bucket:find_local_peers_by_info_hash(<<"h45h1">>, State)
                 )
             end
         },
@@ -254,7 +316,7 @@ find_local_peers_by_info_hash_test_() ->
             fun() ->
                 ?assertEqual(
                     [],
-                    erline_dht_bucket:find_local_peers_by_info_hash(<<"h45h2">>, StateWithInfoHash)
+                    erline_dht_bucket:find_local_peers_by_info_hash(<<"h45h2">>, State)
                 )
             end
         }]
@@ -473,6 +535,7 @@ update_bucket_nodes_status_test_() ->
                         }
                     ]
                 },
+                % Assertions
                 ?assertEqual(
                     {NewState, true},
                     erline_dht_bucket:update_bucket_nodes_status(0, State)
@@ -512,6 +575,7 @@ init_not_active_nodes_replacement_test_() ->
                     k      = 1,
                     db_mod = erline_dht_db_ets
                 },
+                % Assertions
                 ?assertEqual(
                     State,
                     erline_dht_bucket:init_not_active_nodes_replacement(0, State)
