@@ -39,6 +39,9 @@
 
 -ifdef(TEST).
 -export([
+    do_ping_async/3,
+    do_find_node_async/4,
+    do_get_peers_async/4,
     get_bucket_and_node/3,
     update_transaction_id/1,
     update_bucket/3,
@@ -199,7 +202,7 @@ get_buckets_filling() ->
 init([]) ->
     % Get my node hash
     MyNodeHash = case erline_dht:get_env(node_hash, 20) of
-        HashOpt when is_integer(HashOpt) -> crypto:strong_rand_bytes(23); % @todo use algorithm: http://www.bittorrent.org/beps/bep_0020.html
+        HashOpt when is_integer(HashOpt) -> crypto:strong_rand_bytes(HashOpt); % @todo use algorithm: http://www.bittorrent.org/beps/bep_0020.html
         HashOpt when is_binary(HashOpt)  -> HashOpt
     end,
     % Open UDP socket
@@ -650,9 +653,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Request functions
 %%%===================================================================
 
-%%
-%%  @todo test
-%%
+%%  @private
+%%  @doc
+%%  Send ping request.
+%%  Do not wait for response.
+%%  @end
 -spec do_ping_async(
     Ip      :: inet:ip_address(),
     Port    :: inet:port_number(),
@@ -671,13 +676,15 @@ do_ping_async(Bucket, Node = #node{ip_port = {Ip, Port}}, State = #state{}) ->
         {active_transactions, [{ping, TxId} | CurrActiveTx]}
     ],
     NewState = update_node(Bucket, Node, Params, State),
-    ok = erline_dht_message:send_ping(Ip, Port, Socket, MyNodeHash, TxId),
+    ok = erline_dht_message:send_ping(Ip, Port, Socket, TxId, MyNodeHash),
     {ok, NewState}.
 
 
-%%
-%%  @todo test
-%%
+%%  @private
+%%  @doc
+%%  Send find_node request.
+%%  Do not wait for response.
+%%  @end
 -spec do_find_node_async(
     Ip      :: inet:ip_address(),
     Port    :: inet:port_number(),
@@ -701,9 +708,11 @@ do_find_node_async(Bucket, Node = #node{ip_port = {Ip, Port}}, Target, State = #
     {ok, NewState}.
 
 
-%%
-%%  @todo test
-%%
+%%  @private
+%%  @doc
+%%  Send ping request.
+%%  Do not wait for response.
+%%  @end
 -spec do_get_peers_async(
     Ip       :: inet:ip_address(),
     Port     :: inet:port_number(),

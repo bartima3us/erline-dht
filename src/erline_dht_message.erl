@@ -41,11 +41,11 @@
     Ip              :: inet:ip_address(),
     Port            :: inet:port_number(),
     Socket          :: port(),
-    MyNodeId        :: binary(),
-    TransactionId   :: tx_id()
+    TransactionId   :: tx_id(),
+    MyNodeId        :: binary()
 ) -> ok.
 
-send_ping(Ip, Port, Socket, MyNodeId, TransactionId) ->
+send_ping(Ip, Port, Socket, TransactionId, MyNodeId) ->
     Payload = ping_request(TransactionId, MyNodeId),
     ok = socket_send(Socket, Ip, Port, Payload).
 

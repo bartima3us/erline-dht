@@ -81,6 +81,213 @@
 %%
 %%
 %%
+do_ping_async_test_() ->
+    State = #state{
+        my_node_hash = <<"h45h">>,
+        socket       =  sock,
+        buckets      = [
+            #bucket{
+                distance = 1,
+                nodes    = [#node{ip_port = {{12,34,92,154}, 6861}}]
+            },
+            Bucket = #bucket{
+                distance = 2,
+                nodes    = [
+                    Node = #node{
+                        ip_port             = {{12,34,92,155}, 6862},
+                        transaction_id      = <<0,2>>,
+                        active_transactions = [{find_node, <<0,1>>}]
+                    },
+                    #node{ip_port = {{12,34,92,158}, 6865}}
+                ]
+            }
+        ]
+    },
+    {setup,
+        fun() ->
+            ok = meck:new(erline_dht_message),
+            ok = meck:expect(erline_dht_message, send_ping, [{12,34,92,155}, 6862, sock, <<0,2>>, <<"h45h">>], ok)
+        end,
+        fun(_) ->
+            true = meck:validate(erline_dht_message),
+            ok = meck:unload(erline_dht_message)
+        end,
+        [{"Send ping request.",
+            fun() ->
+                ?assertEqual(
+                    {ok, #state{
+                        my_node_hash = <<"h45h">>,
+                        socket       =  sock,
+                        buckets      = [
+                            #bucket{
+                                distance = 1,
+                                nodes    = [#node{ip_port = {{12,34,92,154}, 6861}}]
+                            },
+                            #bucket{
+                                distance = 2,
+                                nodes    = [
+                                    #node{
+                                        ip_port             = {{12,34,92,155}, 6862},
+                                        transaction_id      = <<0,3>>,
+                                        active_transactions = [{ping, <<0,2>>}, {find_node, <<0,1>>}]
+                                    },
+                                    #node{ip_port = {{12,34,92,158}, 6865}}
+                                ]
+                            }
+                        ]
+                    }},
+                    erline_dht_bucket:do_ping_async(Bucket, Node, State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_message, send_ping, [{12,34,92,155}, 6862, sock, <<0,2>>, <<"h45h">>])
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
+do_find_node_async_test_() ->
+    State = #state{
+        my_node_hash = <<"h45h">>,
+        socket       =  sock,
+        buckets      = [
+            #bucket{
+                distance = 1,
+                nodes    = [#node{ip_port = {{12,34,92,154}, 6861}}]
+            },
+            Bucket = #bucket{
+                distance = 2,
+                nodes    = [
+                    Node = #node{
+                        ip_port             = {{12,34,92,155}, 6862},
+                        transaction_id      = <<0,2>>,
+                        active_transactions = [{find_node, <<0,1>>}]
+                    },
+                    #node{ip_port = {{12,34,92,158}, 6865}}
+                ]
+            }
+        ]
+    },
+    {setup,
+        fun() ->
+            ok = meck:new(erline_dht_message),
+            ok = meck:expect(erline_dht_message, send_find_node, [{12,34,92,155}, 6862, sock, <<0,2>>, <<"h45h">>, <<"t4rg3t">>], ok)
+        end,
+        fun(_) ->
+            true = meck:validate(erline_dht_message),
+            ok = meck:unload(erline_dht_message)
+        end,
+        [{"Send find_node request.",
+            fun() ->
+                ?assertEqual(
+                    {ok, #state{
+                        my_node_hash = <<"h45h">>,
+                        socket       =  sock,
+                        buckets      = [
+                            #bucket{
+                                distance = 1,
+                                nodes    = [#node{ip_port = {{12,34,92,154}, 6861}}]
+                            },
+                            #bucket{
+                                distance = 2,
+                                nodes    = [
+                                    #node{
+                                        ip_port             = {{12,34,92,155}, 6862},
+                                        transaction_id      = <<0,3>>,
+                                        active_transactions = [{find_node, <<0,2>>}, {find_node, <<0,1>>}]
+                                    },
+                                    #node{ip_port = {{12,34,92,158}, 6865}}
+                                ]
+                            }
+                        ]
+                    }},
+                    erline_dht_bucket:do_find_node_async(Bucket, Node, <<"t4rg3t">>, State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_message, send_find_node, [{12,34,92,155}, 6862, sock, <<0,2>>, <<"h45h">>, <<"t4rg3t">>])
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
+do_get_peers_async_test_() ->
+    State = #state{
+        my_node_hash = <<"h45h">>,
+        socket       =  sock,
+        buckets      = [
+            #bucket{
+                distance = 1,
+                nodes    = [#node{ip_port = {{12,34,92,154}, 6861}}]
+            },
+            Bucket = #bucket{
+                distance = 2,
+                nodes    = [
+                    Node = #node{
+                        ip_port             = {{12,34,92,155}, 6862},
+                        transaction_id      = <<0,2>>,
+                        active_transactions = [{find_node, <<0,1>>}]
+                    },
+                    #node{ip_port = {{12,34,92,158}, 6865}}
+                ]
+            }
+        ]
+    },
+    {setup,
+        fun() ->
+            ok = meck:new(erline_dht_message),
+            ok = meck:expect(erline_dht_message, send_get_peers, [{12,34,92,155}, 6862, sock, <<0,2>>, <<"h45h">>, <<"1nf0h45h">>], ok)
+        end,
+        fun(_) ->
+            true = meck:validate(erline_dht_message),
+            ok = meck:unload(erline_dht_message)
+        end,
+        [{"Send get_peers request.",
+            fun() ->
+                ?assertEqual(
+                    {ok, <<0,2>>, #state{
+                        my_node_hash = <<"h45h">>,
+                        socket       =  sock,
+                        buckets      = [
+                            #bucket{
+                                distance = 1,
+                                nodes    = [#node{ip_port = {{12,34,92,154}, 6861}}]
+                            },
+                            #bucket{
+                                distance = 2,
+                                nodes    = [
+                                    #node{
+                                        ip_port             = {{12,34,92,155}, 6862},
+                                        transaction_id      = <<0,3>>,
+                                        active_transactions = [{get_peers, <<0,2>>}, {find_node, <<0,1>>}]
+                                    },
+                                    #node{ip_port = {{12,34,92,158}, 6865}}
+                                ]
+                            }
+                        ]
+                    }},
+                    erline_dht_bucket:do_get_peers_async(Bucket, Node, <<"1nf0h45h">>, State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_message, send_get_peers, [{12,34,92,155}, 6862, sock, <<0,2>>, <<"h45h">>, <<"1nf0h45h">>])
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
 get_bucket_and_node_test_() ->
     State = #state{
         db_mod  =  erline_dht_db_ets,
