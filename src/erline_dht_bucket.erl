@@ -69,6 +69,7 @@
 -define(ACTIVE_TTL, 840). % 14 min
 -define(GET_PEERS_SEARCH_TTL, 120). % 2 min
 -define(SUSPICIOUS_TTL, 900). % 15 min (ACTIVE_TTL + 1 min)
+-define(GET_NOT_ASSIGNED_NODES_CALL_TIMEOUT, 15000).
 
 -record(bucket, {
     distance            :: distance(),
@@ -167,14 +168,14 @@ get_all_nodes_in_bucket(Distance) ->
 %%
 %%
 get_not_assigned_nodes() ->
-    gen_server:call(?SERVER, {get_not_assigned_nodes, undefined}).
+    gen_server:call(?SERVER, {get_not_assigned_nodes, undefined}, ?GET_NOT_ASSIGNED_NODES_CALL_TIMEOUT).
 
 
 %%
 %%
 %%
 get_not_assigned_nodes(Distance) ->
-    gen_server:call(?SERVER, {get_not_assigned_nodes, Distance}).
+    gen_server:call(?SERVER, {get_not_assigned_nodes, Distance}, ?GET_NOT_ASSIGNED_NODES_CALL_TIMEOUT).
 
 
 %%
@@ -417,8 +418,6 @@ handle_cast(_Request, State) ->
 handle_info({udp, Socket, Ip, Port, Response}, State) ->
     #state{
         socket        = Socket,
-        my_node_hash  = MyNodeHash,
-        db_mod        = DbMod,
         event_mgr_pid = EventMgrPid
     } = State,
     {Bucket, ActiveTx} = case get_bucket_and_node(Ip, Port, State) of
@@ -432,55 +431,11 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         %
         % Handle ping query
         {ok, ping, q, NodeHash, GotTxId} ->
-            ok = gen_event:notify(EventMgrPid, {ping, q, Ip, Port, NodeHash}),
-            ok = erline_dht_message:respond_ping(Ip, Port, Socket, MyNodeHash, GotTxId),
-            ok = add_node(Ip, Port, NodeHash),
-            State;
+            handle_ping_query(Ip, Port, NodeHash, GotTxId, State);
         %
         % Handle ping response
         {ok, ping, r, NewNodeHash, NewActiveTx} ->
-            ok = gen_event:notify(EventMgrPid, {ping, r, Ip, Port, NewNodeHash}),
-            case erline_dht_helper:get_distance(MyNodeHash, NewNodeHash) of
-                {ok, NewDist} ->
-                    Params = [
-                        {hash,          NewNodeHash},
-                        {last_changed,  calendar:local_time()},
-                        {status,        active}
-                    ],
-                    case Bucket of
-                        % Node is already assigned to the bucket
-                        #bucket{distance = CurrDist} ->
-                            case CurrDist =:= NewDist of
-                                % If hash is the same, update node data
-                                true ->
-                                    update_node(Ip, Port, Params ++ [{active_transactions, NewActiveTx}], State);
-                                 % If hash is changed, move node to another bucket
-                                false ->
-                                    case maybe_clear_bucket(NewDist, State) of
-                                        {true, NewState0}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}, {active_transactions, NewActiveTx}], NewState0);
-                                        {false, NewState0} -> update_node(Ip, Port, Params ++ [unassign, {active_transactions, NewActiveTx}], NewState0)
-                                    end
-                            end;
-                        % New node
-                        false ->
-                            NewState0 = update_node(Ip, Port, [{active_transactions, NewActiveTx}], State),
-                            %{ok, TargetHash} = erline_dht_helper:get_hash_of_distance(MyNodeHash, crypto:rand_uniform(1, erlang:bit_size(MyNodeHash))),
-                            {ok, NewState1} = do_find_node_async(Ip, Port, MyNodeHash, NewState0),
-                            case maybe_clear_bucket(NewDist, NewState1) of
-                                {true, NewState2}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState2);
-                                % No place in the bucket.
-                                {false, NewState2} -> update_node(Ip, Port, Params, NewState2)
-                            end
-                    end;
-                {error, _Reason} ->
-                    Params = [
-                        {hash,                NewNodeHash},
-                        {last_changed,        calendar:local_time()},
-                        {status,              not_active},
-                        {active_transactions, NewActiveTx}
-                    ],
-                    update_node(Ip, Port, Params, State)
-            end;
+            handle_ping_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State);
         % @todo implement
         % Handle find_node query
         {ok, find_node, q, _, _} ->
@@ -489,16 +444,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         %
         % Handle find_node response
         {ok, find_node, r, Nodes, NewActiveTx} ->
-            ok = gen_event:notify(EventMgrPid, {find_node, r, Ip, Port, Nodes}),
-            ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
-                % Can't assume that node we got is live so we need to ping it.
-                ok = add_node(FoundIp, FoundPort, FoundedHash)
-            end, Nodes),
-            Params = [
-                {last_changed,        calendar:local_time()},
-                {active_transactions, NewActiveTx}
-            ],
-            update_node(Ip, Port, Params, State);
+            handle_find_node_response(Ip, Port, Nodes, NewActiveTx, State);
         % @todo implement
         % Handle find_node query
         {ok, get_peers, q, _, _} ->
@@ -506,44 +452,8 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
             State;
         %
         % Handle get_peers response
-        {ok, get_peers, r, {What, TxId, NodesOrPeers, Token}, NewActiveTx} ->
-            % Update last changed
-            NewState0 = case DbMod:get_info_hash(Ip, Port, TxId) of
-                false ->
-                    ok = add_node(Ip, Port),
-                    State;
-                InfoHash ->
-                    true = DbMod:insert_to_get_peers_searches(#get_peers_search{info_hash = InfoHash, last_changed = calendar:local_time()}),
-                    case What of
-                        % Continue search
-                        nodes ->
-                            ok = gen_event:notify(EventMgrPid, {get_peers, r, Ip, Port, {nodes, InfoHash, NodesOrPeers}}),
-                            ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
-                                case DbMod:get_requested_node(FoundIp, FoundPort, InfoHash) of
-                                    [_|_]  ->
-                                        ok;
-                                    [] ->
-                                        ok = add_node(FoundIp, FoundPort, FoundedHash),
-                                        ok = get_peers(FoundIp, FoundPort, InfoHash)
-                                end
-                            end, NodesOrPeers),
-                            State;
-                        % Stop search and save info hashes
-                        peers ->
-                            io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, NodesOrPeers]),
-                            ok = gen_event:notify(EventMgrPid, {get_peers, r, Ip, Port, {peers, InfoHash, NodesOrPeers}}),
-                            lists:foldl(fun (#{ip := FoundIp, port := FoundPort}, StateAcc) ->
-                                ok = add_node(FoundIp, FoundPort),
-                                add_peer(InfoHash, FoundIp, FoundPort, StateAcc)
-                            end, State, NodesOrPeers)
-                    end
-            end,
-            Params = [
-                {token_received,      Token},
-                {last_changed,        calendar:local_time()},
-                {active_transactions, NewActiveTx}
-            ],
-            update_node(Ip, Port, Params, NewState0);
+        {ok, get_peers, r, GetPeersResp, NewActiveTx} ->
+            handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, State);
         % @todo implement
         % Handle announce_peer query
         {ok, announce_peer, q, _Data, _GotTxId} ->
@@ -648,6 +558,145 @@ terminate(_Reason, _State) ->
 %%--------------------------------------------------------------------
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+
+%%%===================================================================
+%%% Handle query and response functions
+%%%===================================================================
+
+%%
+%%  @todo test
+%%
+handle_ping_query(Ip, Port, NodeHash, GotTxId, State) ->
+    #state{
+        socket        = Socket,
+        event_mgr_pid = EventMgrPid,
+        my_node_hash  = MyNodeHash
+    } = State,
+    ok = gen_event:notify(EventMgrPid, {ping, q, Ip, Port, NodeHash}),
+    ok = erline_dht_message:respond_ping(Ip, Port, Socket, MyNodeHash, GotTxId),
+    ok = add_node(Ip, Port, NodeHash),
+    State.
+
+
+%%
+%%  @todo test
+%%
+handle_ping_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State) ->
+    #state{
+        event_mgr_pid = EventMgrPid,
+        my_node_hash  = MyNodeHash
+    } = State,
+    ok = gen_event:notify(EventMgrPid, {ping, r, Ip, Port, NewNodeHash}),
+    case erline_dht_helper:get_distance(MyNodeHash, NewNodeHash) of
+        {ok, NewDist} ->
+            Params = [
+                {hash,          NewNodeHash},
+                {last_changed,  calendar:local_time()},
+                {status,        active}
+            ],
+            case Bucket of
+                % Node is already assigned to the bucket
+                #bucket{distance = CurrDist} ->
+                    case CurrDist =:= NewDist of
+                        % If hash is the same, update node data
+                        true ->
+                            update_node(Ip, Port, Params ++ [{active_transactions, NewActiveTx}], State);
+                         % If hash is changed, move node to another bucket
+                        false ->
+                            case maybe_clear_bucket(NewDist, State) of
+                                {true, NewState0}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}, {active_transactions, NewActiveTx}], NewState0);
+                                {false, NewState0} -> update_node(Ip, Port, Params ++ [unassign, {active_transactions, NewActiveTx}], NewState0)
+                            end
+                    end;
+                % New node
+                false ->
+                    NewState0 = update_node(Ip, Port, [{active_transactions, NewActiveTx}], State),
+                    %{ok, TargetHash} = erline_dht_helper:get_hash_of_distance(MyNodeHash, crypto:rand_uniform(1, erlang:bit_size(MyNodeHash))),
+                    {ok, NewState1} = do_find_node_async(Ip, Port, MyNodeHash, NewState0),
+                    case maybe_clear_bucket(NewDist, NewState1) of
+                        {true, NewState2}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState2);
+                        % No place in the bucket.
+                        {false, NewState2} -> update_node(Ip, Port, Params, NewState2)
+                    end
+            end;
+        {error, _Reason} ->
+            Params = [
+                {hash,                NewNodeHash},
+                {last_changed,        calendar:local_time()},
+                {status,              not_active},
+                {active_transactions, NewActiveTx}
+            ],
+            update_node(Ip, Port, Params, State)
+    end.
+
+
+%%
+%%  @todo test
+%%
+handle_find_node_response(Ip, Port, Nodes, NewActiveTx, State) ->
+    #state{
+        event_mgr_pid = EventMgrPid
+    } = State,
+    ok = gen_event:notify(EventMgrPid, {find_node, r, Ip, Port, Nodes}),
+    ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
+        % Can't assume that node we got is live so we need to ping it.
+        ok = add_node(FoundIp, FoundPort, FoundedHash)
+    end, Nodes),
+    Params = [
+        {last_changed,        calendar:local_time()},
+        {active_transactions, NewActiveTx}
+    ],
+    update_node(Ip, Port, Params, State).
+
+
+%%
+%%  @todo test
+%%
+handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, State) ->
+    #state{
+        event_mgr_pid = EventMgrPid,
+        db_mod        = DbMod
+    } = State,
+    {What, TxId, NodesOrPeers, Token} = GetPeersResp,
+    % Update last changed
+    NewState0 = case DbMod:get_info_hash(Ip, Port, TxId) of
+        false ->
+            ok = add_node(Ip, Port),
+            State;
+        InfoHash ->
+            true = DbMod:insert_to_get_peers_searches(#get_peers_search{info_hash = InfoHash, last_changed = calendar:local_time()}),
+            case What of
+                % Continue search
+                nodes ->
+                    ok = gen_event:notify(EventMgrPid, {get_peers, r, Ip, Port, {nodes, InfoHash, NodesOrPeers}}),
+                    ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
+                        case DbMod:get_requested_node(FoundIp, FoundPort, InfoHash) of
+                            [_|_]  ->
+                                ok;
+                            [] ->
+                                ok = add_node(FoundIp, FoundPort, FoundedHash),
+                                ok = get_peers(FoundIp, FoundPort, InfoHash)
+                        end
+                    end, NodesOrPeers),
+                    State;
+                % Stop search and save info hashes
+                peers ->
+                    io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, NodesOrPeers]),
+                    ok = gen_event:notify(EventMgrPid, {get_peers, r, Ip, Port, {peers, InfoHash, NodesOrPeers}}),
+                    lists:foldl(fun (#{ip := FoundIp, port := FoundPort}, StateAcc) ->
+                        ok = add_node(FoundIp, FoundPort),
+                        add_peer(InfoHash, FoundIp, FoundPort, StateAcc)
+                    end, State, NodesOrPeers)
+            end
+    end,
+    Params = [
+        {token_received,      Token},
+        {last_changed,        calendar:local_time()},
+        {active_transactions, NewActiveTx}
+    ],
+    update_node(Ip, Port, Params, NewState0).
+
 
 %%%===================================================================
 %%% Request functions
