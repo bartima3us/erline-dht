@@ -41,6 +41,7 @@
 -export([
     handle_ping_query/5,
     handle_find_node_response/5,
+    handle_get_peers_response/5,
     do_ping_async/3,
     do_find_node_async/4,
     do_get_peers_async/4,
@@ -670,27 +671,40 @@ handle_find_node_response(Ip, Port, Nodes, NewActiveTx, State) ->
     update_node(Ip, Port, Params, State).
 
 
-%%
-%%  @todo test
-%%
+%%  @private
+%%  @doc
+%%  Handle ping query from socket.
+%%  @end
+-spec handle_get_peers_response(
+    Ip              :: inet:ip_address(),
+    Port            :: inet:port_number(),
+    GetPeersResp    :: {What         :: nodes | peers,
+                        TxId         :: tx_id(),
+                        NodesOrPeers :: [parsed_compact_node_info() | parsed_peer_info()],
+                        Token        :: binary()},
+    NewActiveTx     :: [active_tx()],
+    State           :: #state{}
+) -> NewState :: #state{}.
+
 handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, State) ->
+    {What, TxId, NodesOrPeers, Token} = GetPeersResp,
     #state{
         event_mgr_pid = EventMgrPid,
         db_mod        = DbMod
     } = State,
-    {What, TxId, NodesOrPeers, Token} = GetPeersResp,
-    % Update last changed
     NewState0 = case DbMod:get_info_hash(Ip, Port, TxId) of
         false ->
             ok = add_node(Ip, Port),
             State;
         InfoHash ->
+            % Update last_changed
             true = DbMod:insert_to_get_peers_searches(#get_peers_search{info_hash = InfoHash, last_changed = erline_dht_helper:local_time()}),
             case What of
                 % Continue search
                 nodes ->
                     ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, Ip, Port, {nodes, InfoHash, NodesOrPeers}}),
                     ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
+                        % Check whether we already have that node in ETS
                         case DbMod:get_requested_node(FoundIp, FoundPort, InfoHash) of
                             [_|_]  ->
                                 ok;

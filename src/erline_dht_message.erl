@@ -297,8 +297,8 @@ error_response(TransactionId, ErrorCode, ErrorDescription) when
     {ok, ping, r, Hash :: binary(), NewActiveTx :: [active_tx()]} |
     {ok, find_node, r, [parsed_compact_node_info()], NewActiveTx :: [active_tx()]} |
     {ok, get_peers, r,
-        {nodes, TxId :: tx_id(), [parsed_compact_node_info()], PeerToken :: binary} |
-        {peers, TxId :: tx_id(), [parsed_peer_info()], PeerToken :: binary},
+        {nodes, TxId :: tx_id(), Nodes :: [parsed_compact_node_info()], PeerToken :: binary()} |
+        {peers, TxId :: tx_id(), Peers :: [parsed_peer_info()],         PeerToken :: binary()},
         NewActiveTx :: [active_tx()]} |
     {error, {krpc_error, Error :: [term()]}, NewActiveTx :: [active_tx()]} | % Error :: [ErrorCode :: krpc_error_code(), Description :: binary()]
     {error, {bad_query, Response :: term()}} |
@@ -377,8 +377,8 @@ parse_krpc_response(Response, ActiveTxs) ->
         Type            :: get_peers,
         TransactionId   :: tx_id(),
         Resp            :: dict:dict()
-    ) -> {nodes, TxId :: tx_id(), [parsed_compact_node_info()], PeerToken :: binary} |
-         {peers, TxId :: tx_id(), [parsed_peer_info()], PeerToken :: binary}.
+    ) -> {nodes, TxId :: tx_id(), Nodes :: [parsed_compact_node_info()], PeerToken :: binary()} |
+         {peers, TxId :: tx_id(), Peers :: [parsed_peer_info()],         PeerToken :: binary()}.
 
 parse_response_dict(ping, _TransactionId, Resp) ->
     {ok, NodeHash} = dict:find(<<"id">>, Resp),
