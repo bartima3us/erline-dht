@@ -98,7 +98,7 @@ handle_ping_query_test_() ->
             true = meck:validate([erline_dht_message, erline_dht_helper]),
             ok = meck:unload([erline_dht_message, erline_dht_helper])
         end,
-        [{"Send ping request.",
+        [{"Handle ping query.",
             fun() ->
                 ?assertEqual(
                     State,
@@ -111,6 +111,81 @@ handle_ping_query_test_() ->
                 ?assertEqual(
                     1,
                     meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {ping, q, {12,34,92,155}, 6862, <<"n0d3_h45h">>}])
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
+handle_find_node_response_test_() ->
+    Nodes = [
+        #{ip => {12,34,92,156}, port => 6863, hash => <<"h45h1">>},
+        #{ip => {12,34,92,157}, port => 6864, hash => <<"h45h2">>},
+        #{ip => {12,34,92,158}, port => 6865, hash => <<"h45h3">>}
+    ],
+    EventMgrPid = erlang:list_to_pid("<0.0.100>"),
+    State = #state{
+        db_mod          =  erline_dht_db_ets,
+        event_mgr_pid   = EventMgrPid,
+        socket          = sock,
+        my_node_hash    = <<"h45h">>,
+        buckets = [
+            #bucket{
+                distance = 2,
+                nodes    = [
+                    #node{
+                        ip_port             = {{12,34,92,155}, 6862},
+                        transaction_id      = <<0,2>>,
+                        active_transactions = [{find_node, <<0,1>>}]
+                    },
+                    #node{ip_port = {{12,34,92,158}, 6865}}
+                ]
+            }
+        ]
+    },
+    {setup,
+        fun() ->
+            ok = meck:new([erline_dht_message, erline_dht_helper, erline_dht_db_ets]),
+            ok = meck:expect(erline_dht_message, respond_ping, [{12,34,92,155}, 6862, sock, <<"h45h">>, <<0,2>>], ok),
+            ok = meck:expect(erline_dht_helper, notify, [EventMgrPid, {find_node, r, {12,34,92,155}, 6862, Nodes}], ok),
+            ok = meck:expect(erline_dht_helper, local_time, [], {{2020,7,1},{12,0,0}}),
+            ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, [{12,34,92,155}, 6862], [])
+        end,
+        fun(_) ->
+            true = meck:validate([erline_dht_message, erline_dht_helper, erline_dht_db_ets]),
+            ok = meck:unload([erline_dht_message, erline_dht_helper, erline_dht_db_ets])
+        end,
+        [{"Handle find_node response.",
+            fun() ->
+                ?assertEqual(
+                    #state{
+                        db_mod          =  erline_dht_db_ets,
+                        event_mgr_pid   = EventMgrPid,
+                        socket          = sock,
+                        my_node_hash    = <<"h45h">>,
+                        buckets = [
+                            #bucket{
+                                distance = 2,
+                                nodes    = [
+                                    #node{
+                                        ip_port             = {{12,34,92,155}, 6862},
+                                        transaction_id      = <<0,2>>,
+                                        active_transactions = [{ping, <<0,3>>}],
+                                        last_changed        = {{2020,7,1},{12,0,0}}
+                                    },
+                                    #node{ip_port = {{12,34,92,158}, 6865}}
+                                ]
+                            }
+                        ]
+                    },
+                    erline_dht_bucket:handle_find_node_response({12,34,92,155}, 6862, Nodes, [{ping, <<0,3>>}], State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {find_node, r, {12,34,92,155}, 6862, Nodes}])
                 )
             end
         }]
@@ -696,7 +771,8 @@ clear_peers_searches_test_() ->
                 (_, {{2020,7,1},{10,0,0}}) -> 500;
                 (_, {{2020,7,1},{11,0,0}}) -> 550;
                 (_, _) -> 10
-            end)
+            end),
+            ok = meck:expect(erline_dht_helper, local_time, [], {{2020,7,1},{12,0,0}})
         end,
         fun(_) ->
             true = meck:validate([erline_dht_db_ets, erline_dht_helper]),
@@ -741,7 +817,8 @@ update_bucket_nodes_status_test_() ->
                 (_, {{2020,7,1},{17,0,0}}) -> 200;
                 (_, {{2020,7,1},{18,0,0}}) -> 200;
                 (_, _) -> 1000
-            end)
+            end),
+            ok = meck:expect(erline_dht_helper, local_time, [], {{2020,7,1},{12,0,0}})
         end,
         fun(_) ->
             true = meck:validate([erline_dht_db_ets, erline_dht_helper, erline_dht_message]),
@@ -916,7 +993,8 @@ clear_not_assigned_nodes_test_() ->
             ok = meck:expect(erline_dht_db_ets, get_not_assigned_nodes, [0], ?NODES_LIST),
             ok = meck:expect(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, ['_', '_'], true),
             ok = meck:expect(erline_dht_db_ets, delete_from_not_assigned_nodes_by_dist_date, [undefined, {{2020,7,1},{12,0,0}}], ok),
-            ok = meck:expect(erline_dht_helper, change_datetime, ['_', '_'], {{2020,7,1},{12,0,0}})
+            ok = meck:expect(erline_dht_helper, change_datetime, ['_', '_'], {{2020,7,1},{12,0,0}}),
+            ok = meck:expect(erline_dht_helper, local_time, [], {{2020,7,1},{12,0,0}})
         end,
         fun(_) ->
             true = meck:validate([erline_dht_db_ets, erline_dht_helper]),

@@ -40,6 +40,7 @@
 -ifdef(TEST).
 -export([
     handle_ping_query/5,
+    handle_find_node_response/5,
     do_ping_async/3,
     do_find_node_async/4,
     do_get_peers_async/4,
@@ -348,7 +349,7 @@ handle_cast({add_node, Ip, Port, Hash}, State = #state{}) ->
                 ip_port      = {Ip, Port},
                 hash         = Hash,
                 distance     = Distance,
-                last_changed = calendar:local_time()
+                last_changed = erline_dht_helper:local_time()
             },
             true = DbMod:insert_to_not_assigned_nodes(NewNode),
             {ok, NewState0} = do_ping_async(Ip, Port, State),
@@ -388,7 +389,7 @@ handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{}) ->
         {ok, TxId, NewState0} = do_get_peers_async(RequestedIp, RequestedPort, InfoHash, AccState),
         GetPeersSearch = #get_peers_search{
             info_hash       = InfoHash,
-            last_changed    = calendar:local_time()
+            last_changed    = erline_dht_helper:local_time()
         },
         RequestedNode = #requested_node{
             ip_port         = {RequestedIp, RequestedPort},
@@ -459,7 +460,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         % Handle announce_peer query
         {ok, announce_peer, q, _Data, _GotTxId} ->
             ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, q, Ip, Port, <<>>}),
-            update_node(Ip, Port, [{last_changed, calendar:local_time()}], State);
+            update_node(Ip, Port, [{last_changed, erline_dht_helper:local_time()}], State);
         % @todo implement
         % Handle announce_peer response
         {ok, announce_peer, r, _, _} ->
@@ -470,13 +471,13 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         {error, {krpc_error, Reason}, NewActiveTx} ->
             ok = erline_dht_helper:notify(EventMgrPid, {error, r, Ip, Port, Reason}),
             Params = [
-                {last_changed,        calendar:local_time()},
+                {last_changed,        erline_dht_helper:local_time()},
                 {active_transactions, NewActiveTx}
             ],
             update_node(Ip, Port, Params, State);
         {error, {bad_type, _BadType}, NewActiveTx} ->
             Params = [
-                {last_changed,        calendar:local_time()},
+                {last_changed,        erline_dht_helper:local_time()},
                 {active_transactions, NewActiveTx}
             ],
             update_node(Ip, Port, Params, State);
@@ -602,7 +603,7 @@ handle_ping_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State) ->
         {ok, NewDist} ->
             Params = [
                 {hash,          NewNodeHash},
-                {last_changed,  calendar:local_time()},
+                {last_changed,  erline_dht_helper:local_time()},
                 {status,        active}
             ],
             case Bucket of
@@ -633,7 +634,7 @@ handle_ping_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State) ->
         {error, _Reason} ->
             Params = [
                 {hash,                NewNodeHash},
-                {last_changed,        calendar:local_time()},
+                {last_changed,        erline_dht_helper:local_time()},
                 {status,              not_active},
                 {active_transactions, NewActiveTx}
             ],
@@ -641,9 +642,18 @@ handle_ping_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State) ->
     end.
 
 
-%%
-%%  @todo test
-%%
+%%  @private
+%%  @doc
+%%  Handle ping query from socket.
+%%  @end
+-spec handle_find_node_response(
+    Ip          :: inet:ip_address(),
+    Port        :: inet:port_number(),
+    Nodes       :: [parsed_compact_node_info()],
+    NewActiveTx :: [active_tx()],
+    State       :: #state{}
+) -> NewState :: #state{}.
+
 handle_find_node_response(Ip, Port, Nodes, NewActiveTx, State) ->
     #state{
         event_mgr_pid = EventMgrPid
@@ -654,7 +664,7 @@ handle_find_node_response(Ip, Port, Nodes, NewActiveTx, State) ->
         ok = add_node(FoundIp, FoundPort, FoundedHash)
     end, Nodes),
     Params = [
-        {last_changed,        calendar:local_time()},
+        {last_changed,        erline_dht_helper:local_time()},
         {active_transactions, NewActiveTx}
     ],
     update_node(Ip, Port, Params, State).
@@ -675,7 +685,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, State) ->
             ok = add_node(Ip, Port),
             State;
         InfoHash ->
-            true = DbMod:insert_to_get_peers_searches(#get_peers_search{info_hash = InfoHash, last_changed = calendar:local_time()}),
+            true = DbMod:insert_to_get_peers_searches(#get_peers_search{info_hash = InfoHash, last_changed = erline_dht_helper:local_time()}),
             case What of
                 % Continue search
                 nodes ->
@@ -702,7 +712,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, State) ->
     end,
     Params = [
         {token_received,      Token},
-        {last_changed,        calendar:local_time()},
+        {last_changed,        erline_dht_helper:local_time()},
         {active_transactions, NewActiveTx}
     ],
     update_node(Ip, Port, Params, NewState0).
@@ -1124,7 +1134,7 @@ add_peer(InfoHashBin, Ip, Port, State = #state{info_hashes = InfoHashes}) ->
 
 clear_peers_searches(#state{db_mod = DbMod}) ->
     ok = lists:foreach(fun (#get_peers_search{info_hash = InfoHash, last_changed = LastChanged}) ->
-        case erline_dht_helper:datetime_diff(calendar:local_time(), LastChanged) < ?GET_PEERS_SEARCH_TTL of
+        case erline_dht_helper:datetime_diff(erline_dht_helper:local_time(), LastChanged) < ?GET_PEERS_SEARCH_TTL of
             true  ->
                 ok;
             false ->
@@ -1151,7 +1161,7 @@ update_bucket_nodes_status(Distance, State = #state{buckets = CurrBuckets}) ->
             last_changed = LastChanged,
             status       = Status
         } = Node,
-        case erline_dht_helper:datetime_diff(calendar:local_time(), LastChanged) of
+        case erline_dht_helper:datetime_diff(erline_dht_helper:local_time(), LastChanged) of
             SecondsTillLastChanged when SecondsTillLastChanged > ?ACTIVE_TTL, Status =:= active ->
                 CurrAccState0 = update_node(Ip, Port, [{status, suspicious}], CurrAccState),
                 % Try to ping once again
@@ -1194,7 +1204,7 @@ init_not_active_nodes_replacement(Distance, State = #state{k = K, db_mod = DbMod
 ) -> ok.
 
 clear_not_assigned_nodes(#state{db_mod = DbMod}) ->
-    Dt = erline_dht_helper:change_datetime(calendar:local_time(), ?NOT_ACTIVE_NOT_ASSIGNED_NODES_TTL),
+    Dt = erline_dht_helper:change_datetime(erline_dht_helper:local_time(), ?NOT_ACTIVE_NOT_ASSIGNED_NODES_TTL),
     ok = DbMod:delete_from_not_assigned_nodes_by_dist_date(undefined, Dt).
 
 
@@ -1208,7 +1218,7 @@ clear_not_assigned_nodes(#state{db_mod = DbMod}) ->
 ) -> ok.
 
 clear_not_assigned_nodes(Distance, #state{db_mod = DbMod, not_assigned_clearing_threshold = Threshold}) ->
-    Dt = erline_dht_helper:change_datetime(calendar:local_time(), ?ACTIVE_NOT_ASSIGNED_NODES_TTL),
+    Dt = erline_dht_helper:change_datetime(erline_dht_helper:local_time(), ?ACTIVE_NOT_ASSIGNED_NODES_TTL),
     case DbMod:get_not_assigned_nodes(Distance) of
         Nodes when length(Nodes) > Threshold ->
             SortedNodes = lists:sort(fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->

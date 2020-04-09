@@ -18,7 +18,8 @@
     parse_peer_info/1,
     datetime_diff/2,
     change_datetime/2,
-    notify/2
+    notify/2,
+    local_time/0
 ]).
 
 
@@ -169,5 +170,14 @@ change_datetime(DateTime, Seconds) ->
 
 notify(Ref, Event) ->
     gen_event:notify(Ref, Event).
+
+
+%%  @doc
+%%  Encapsulation for mocking purposes.
+%%  @end
+-spec local_time() -> calendar:datetime().
+
+local_time() ->
+    calendar:local_time().
 
 
