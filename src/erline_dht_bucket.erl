@@ -39,6 +39,7 @@
 
 -ifdef(TEST).
 -export([
+    handle_ping_query/5,
     do_ping_async/3,
     do_find_node_async/4,
     do_get_peers_async/4,
@@ -371,7 +372,7 @@ handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{}) ->
             % First check in the local cache for a peer
             LocalPeers = find_local_peers_by_info_hash(InfoHash, State),
             {ok, {LocalIp, LocalPort}} = inet:sockname(Socket),
-            ok = gen_event:notify(EventMgrPid, {get_peers, r, LocalIp, LocalPort, {peers, InfoHash, LocalPeers}}),
+            ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, LocalIp, LocalPort, {peers, InfoHash, LocalPeers}}),
             io:format("xxxxxx LocalPeers = ~p~n", [LocalPeers]),
             % Flatten all nodes in all buckets
             lists:foldl(fun (#bucket{nodes = Nodes}, NodesAcc) ->
@@ -439,7 +440,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         % @todo implement
         % Handle find_node query
         {ok, find_node, q, _, _} ->
-            ok = gen_event:notify(EventMgrPid, {find_node, q, Ip, Port, <<>>}),
+            ok = erline_dht_helper:notify(EventMgrPid, {find_node, q, Ip, Port, <<>>}),
             State;
         %
         % Handle find_node response
@@ -448,7 +449,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         % @todo implement
         % Handle find_node query
         {ok, get_peers, q, _, _} ->
-            ok = gen_event:notify(EventMgrPid, {get_peers, q, Ip, Port, <<>>}),
+            ok = erline_dht_helper:notify(EventMgrPid, {get_peers, q, Ip, Port, <<>>}),
             State;
         %
         % Handle get_peers response
@@ -457,17 +458,17 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         % @todo implement
         % Handle announce_peer query
         {ok, announce_peer, q, _Data, _GotTxId} ->
-            ok = gen_event:notify(EventMgrPid, {announce_peer, q, Ip, Port, <<>>}),
+            ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, q, Ip, Port, <<>>}),
             update_node(Ip, Port, [{last_changed, calendar:local_time()}], State);
         % @todo implement
         % Handle announce_peer response
         {ok, announce_peer, r, _, _} ->
-            ok = gen_event:notify(EventMgrPid, {announce_peer, r, Ip, Port, <<>>}),
+            ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, r, Ip, Port, <<>>}),
             State;
         %
         % Handle errors
         {error, {krpc_error, Reason}, NewActiveTx} ->
-            ok = gen_event:notify(EventMgrPid, {error, r, Ip, Port, Reason}),
+            ok = erline_dht_helper:notify(EventMgrPid, {error, r, Ip, Port, Reason}),
             Params = [
                 {last_changed,        calendar:local_time()},
                 {active_transactions, NewActiveTx}
@@ -564,16 +565,25 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Handle query and response functions
 %%%===================================================================
 
-%%
-%%  @todo test
-%%
+%%  @private
+%%  @doc
+%%  Handle ping query from socket.
+%%  @end
+-spec handle_ping_query(
+    Ip          :: inet:ip_address(),
+    Port        :: inet:port_number(),
+    NodeHash    :: binary(),
+    GotTxId     :: tx_id(),
+    State       :: #state{}
+) -> NewState :: #state{}.
+
 handle_ping_query(Ip, Port, NodeHash, GotTxId, State) ->
     #state{
         socket        = Socket,
         event_mgr_pid = EventMgrPid,
         my_node_hash  = MyNodeHash
     } = State,
-    ok = gen_event:notify(EventMgrPid, {ping, q, Ip, Port, NodeHash}),
+    ok = erline_dht_helper:notify(EventMgrPid, {ping, q, Ip, Port, NodeHash}),
     ok = erline_dht_message:respond_ping(Ip, Port, Socket, MyNodeHash, GotTxId),
     ok = add_node(Ip, Port, NodeHash),
     State.
@@ -587,7 +597,7 @@ handle_ping_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State) ->
         event_mgr_pid = EventMgrPid,
         my_node_hash  = MyNodeHash
     } = State,
-    ok = gen_event:notify(EventMgrPid, {ping, r, Ip, Port, NewNodeHash}),
+    ok = erline_dht_helper:notify(EventMgrPid, {ping, r, Ip, Port, NewNodeHash}),
     case erline_dht_helper:get_distance(MyNodeHash, NewNodeHash) of
         {ok, NewDist} ->
             Params = [
@@ -638,7 +648,7 @@ handle_find_node_response(Ip, Port, Nodes, NewActiveTx, State) ->
     #state{
         event_mgr_pid = EventMgrPid
     } = State,
-    ok = gen_event:notify(EventMgrPid, {find_node, r, Ip, Port, Nodes}),
+    ok = erline_dht_helper:notify(EventMgrPid, {find_node, r, Ip, Port, Nodes}),
     ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
         % Can't assume that node we got is live so we need to ping it.
         ok = add_node(FoundIp, FoundPort, FoundedHash)
@@ -669,7 +679,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, State) ->
             case What of
                 % Continue search
                 nodes ->
-                    ok = gen_event:notify(EventMgrPid, {get_peers, r, Ip, Port, {nodes, InfoHash, NodesOrPeers}}),
+                    ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, Ip, Port, {nodes, InfoHash, NodesOrPeers}}),
                     ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
                         case DbMod:get_requested_node(FoundIp, FoundPort, InfoHash) of
                             [_|_]  ->
@@ -683,7 +693,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, State) ->
                 % Stop search and save info hashes
                 peers ->
                     io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, NodesOrPeers]),
-                    ok = gen_event:notify(EventMgrPid, {get_peers, r, Ip, Port, {peers, InfoHash, NodesOrPeers}}),
+                    ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, Ip, Port, {peers, InfoHash, NodesOrPeers}}),
                     lists:foldl(fun (#{ip := FoundIp, port := FoundPort}, StateAcc) ->
                         ok = add_node(FoundIp, FoundPort),
                         add_peer(InfoHash, FoundIp, FoundPort, StateAcc)

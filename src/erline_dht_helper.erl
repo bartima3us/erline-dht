@@ -17,7 +17,8 @@
     parse_compact_node_info/1,
     parse_peer_info/1,
     datetime_diff/2,
-    change_datetime/2
+    change_datetime/2,
+    notify/2
 ]).
 
 
@@ -156,5 +157,17 @@ datetime_diff(DateTime1, DateTime2) ->
 
 change_datetime(DateTime, Seconds) ->
     calendar:gregorian_seconds_to_datetime(calendar:datetime_to_gregorian_seconds(DateTime) - Seconds).
+
+
+%%  @doc
+%%  Encapsulation for mocking purposes.
+%%  @end
+-spec notify(
+    Ref     :: gen_event:emgr_ref(),
+    Event   :: term()
+) -> ok.
+
+notify(Ref, Event) ->
+    gen_event:notify(Ref, Event).
 
 

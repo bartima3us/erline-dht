@@ -81,6 +81,45 @@
 %%
 %%
 %%
+handle_ping_query_test_() ->
+    EventMgrPid = erlang:list_to_pid("<0.0.100>"),
+    State = #state{
+        event_mgr_pid = EventMgrPid,
+        socket        = sock,
+        my_node_hash  = <<"h45h">>
+    },
+    {setup,
+        fun() ->
+            ok = meck:new([erline_dht_message, erline_dht_helper]),
+            ok = meck:expect(erline_dht_message, respond_ping, [{12,34,92,155}, 6862, sock, <<"h45h">>, <<0,2>>], ok),
+            ok = meck:expect(erline_dht_helper, notify, [EventMgrPid, {ping, q, {12,34,92,155}, 6862, <<"n0d3_h45h">>}], ok)
+        end,
+        fun(_) ->
+            true = meck:validate([erline_dht_message, erline_dht_helper]),
+            ok = meck:unload([erline_dht_message, erline_dht_helper])
+        end,
+        [{"Send ping request.",
+            fun() ->
+                ?assertEqual(
+                    State,
+                    erline_dht_bucket:handle_ping_query({12,34,92,155}, 6862, <<"n0d3_h45h">>, <<0,2>>, State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_message, respond_ping, [{12,34,92,155}, 6862, sock, <<"h45h">>, <<0,2>>])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {ping, q, {12,34,92,155}, 6862, <<"n0d3_h45h">>}])
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
 do_ping_async_test_() ->
     State = #state{
         my_node_hash = <<"h45h">>,
