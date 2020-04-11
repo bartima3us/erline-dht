@@ -21,21 +21,21 @@
 }).
 
 -record(requested_node, {
-    ip_port         :: {inet:ip_address(), inet:port_number()},
-    transaction_id  :: tx_id(),
-    info_hash       :: binary()
+    ip_port     :: {inet:ip_address(), inet:port_number()},
+    tx_id       :: tx_id(),
+    info_hash   :: binary()
 }).
 
 -record(node, {
-    ip_port                             :: {inet:ip_address(), inet:port_number()},
-    hash                                :: binary(),
-    token_sent                          :: binary(),
-    token_received                      :: binary(),
-    last_changed                        :: calendar:datetime(),
-    transaction_id      = <<0,0>>       :: tx_id(),
-    active_transactions = []            :: [{request(), tx_id()}],
-    status              = suspicious    :: status(),
-    distance                            :: distance()
+    ip_port                         :: {inet:ip_address(), inet:port_number()},
+    hash                            :: binary(),
+    token_sent                      :: binary(),
+    token_received                  :: binary(),
+    last_changed                    :: calendar:datetime(),
+    tx_id           = <<0,0>>       :: tx_id(),
+    active_txs      = []            :: [{request(), tx_id()}],
+    status          = suspicious    :: status(),
+    distance                        :: distance()
 }).
 
 -record(bucket, {
@@ -137,9 +137,9 @@ handle_find_node_response_test_() ->
                 distance = 2,
                 nodes    = [
                     #node{
-                        ip_port             = {{12,34,92,155}, 6862},
-                        transaction_id      = <<0,2>>,
-                        active_transactions = [{find_node, <<0,1>>}]
+                        ip_port    = {{12,34,92,155}, 6862},
+                        tx_id      = <<0,2>>,
+                        active_txs = [{find_node, <<0,1>>}]
                     },
                     #node{ip_port = {{12,34,92,158}, 6865}}
                 ]
@@ -171,10 +171,10 @@ handle_find_node_response_test_() ->
                                 distance = 2,
                                 nodes    = [
                                     #node{
-                                        ip_port             = {{12,34,92,155}, 6862},
-                                        transaction_id      = <<0,2>>,
-                                        active_transactions = [{ping, <<0,3>>}],
-                                        last_changed        = {{2020,7,1},{12,0,0}}
+                                        ip_port         = {{12,34,92,155}, 6862},
+                                        tx_id           = <<0,2>>,
+                                        active_txs      = [{ping, <<0,3>>}],
+                                        last_changed    = {{2020,7,1},{12,0,0}}
                                     },
                                     #node{ip_port = {{12,34,92,158}, 6865}}
                                 ]
@@ -221,14 +221,14 @@ handle_get_peers_response_test_() ->
                 distance = 2,
                 nodes    = [
                     #node{
-                        ip_port             = {{12,34,92,153}, 6860},
-                        transaction_id      = <<0,2>>,
-                        active_transactions = [{find_node, <<0,1>>}]
+                        ip_port    = {{12,34,92,153}, 6860},
+                        tx_id      = <<0,2>>,
+                        active_txs = [{find_node, <<0,1>>}]
                     },
                     #node{
-                        ip_port             = {{12,34,92,154}, 6861},
-                        transaction_id      = <<0,4>>,
-                        active_transactions = [{find_node, <<0,3>>}]
+                        ip_port    = {{12,34,92,154}, 6861},
+                        tx_id      = <<0,4>>,
+                        active_txs = [{find_node, <<0,3>>}]
                     }
                 ]
             }
@@ -281,16 +281,16 @@ handle_get_peers_response_test_() ->
                                 distance = 2,
                                 nodes    = [
                                     #node{
-                                        ip_port             = {{12,34,92,153}, 6860},
-                                        transaction_id      = <<0,2>>,
-                                        active_transactions = [{ping, <<0,3>>}],
-                                        last_changed        = {{2020,7,1},{12,0,0}},
-                                        token_received      = <<"t0k3n">>
+                                        ip_port         = {{12,34,92,153}, 6860},
+                                        tx_id           = <<0,2>>,
+                                        active_txs      = [{ping, <<0,3>>}],
+                                        last_changed    = {{2020,7,1},{12,0,0}},
+                                        token_received  = <<"t0k3n">>
                                     },
                                     #node{
-                                        ip_port             = {{12,34,92,154}, 6861},
-                                        transaction_id      = <<0,4>>,
-                                        active_transactions = [{find_node, <<0,3>>}]
+                                        ip_port    = {{12,34,92,154}, 6861},
+                                        tx_id      = <<0,4>>,
+                                        active_txs = [{find_node, <<0,3>>}]
                                     }
                                 ]
                             }
@@ -318,16 +318,16 @@ handle_get_peers_response_test_() ->
                                 distance = 2,
                                 nodes    = [
                                     #node{
-                                        ip_port             = {{12,34,92,153}, 6860},
-                                        transaction_id      = <<0,2>>,
-                                        active_transactions = [{find_node, <<0,1>>}]
+                                        ip_port    = {{12,34,92,153}, 6860},
+                                        tx_id      = <<0,2>>,
+                                        active_txs = [{find_node, <<0,1>>}]
                                     },
                                     #node{
-                                        ip_port             = {{12,34,92,154}, 6861},
-                                        transaction_id      = <<0,4>>,
-                                        active_transactions = [{ping, <<0,3>>}],
-                                        last_changed        = {{2020,7,1},{12,0,0}},
-                                        token_received      = <<"t0k3n">>
+                                        ip_port         = {{12,34,92,154}, 6861},
+                                        tx_id           = <<0,4>>,
+                                        active_txs      = [{ping, <<0,3>>}],
+                                        last_changed    = {{2020,7,1},{12,0,0}},
+                                        token_received  = <<"t0k3n">>
                                     }
                                 ]
                             }
@@ -367,16 +367,16 @@ handle_get_peers_response_test_() ->
                                 distance = 2,
                                 nodes    = [
                                     #node{
-                                        ip_port             = {{12,34,92,153}, 6860},
-                                        transaction_id      = <<0,2>>,
-                                        active_transactions = [{find_node, <<0,1>>}]
+                                        ip_port    = {{12,34,92,153}, 6860},
+                                        tx_id      = <<0,2>>,
+                                        active_txs = [{find_node, <<0,1>>}]
                                     },
                                     #node{
-                                        ip_port             = {{12,34,92,154}, 6861},
-                                        transaction_id      = <<0,4>>,
-                                        active_transactions = [{ping, <<0,3>>}],
-                                        last_changed        = {{2020,7,1},{12,0,0}},
-                                        token_received      = <<"t0k3n">>
+                                        ip_port         = {{12,34,92,154}, 6861},
+                                        tx_id           = <<0,4>>,
+                                        active_txs      = [{ping, <<0,3>>}],
+                                        last_changed    = {{2020,7,1},{12,0,0}},
+                                        token_received  = <<"t0k3n">>
                                     }
                                 ]
                             }
@@ -431,9 +431,9 @@ do_ping_async_test_() ->
                 distance = 2,
                 nodes    = [
                     Node = #node{
-                        ip_port             = {{12,34,92,155}, 6862},
-                        transaction_id      = <<0,2>>,
-                        active_transactions = [{find_node, <<0,1>>}]
+                        ip_port    = {{12,34,92,155}, 6862},
+                        tx_id      = <<0,2>>,
+                        active_txs = [{find_node, <<0,1>>}]
                     },
                     #node{ip_port = {{12,34,92,158}, 6865}}
                 ]
@@ -464,9 +464,9 @@ do_ping_async_test_() ->
                                 distance = 2,
                                 nodes    = [
                                     #node{
-                                        ip_port             = {{12,34,92,155}, 6862},
-                                        transaction_id      = <<0,3>>,
-                                        active_transactions = [{ping, <<0,2>>}, {find_node, <<0,1>>}]
+                                        ip_port    = {{12,34,92,155}, 6862},
+                                        tx_id      = <<0,3>>,
+                                        active_txs = [{ping, <<0,2>>}, {find_node, <<0,1>>}]
                                     },
                                     #node{ip_port = {{12,34,92,158}, 6865}}
                                 ]
@@ -500,9 +500,9 @@ do_find_node_async_test_() ->
                 distance = 2,
                 nodes    = [
                     Node = #node{
-                        ip_port             = {{12,34,92,155}, 6862},
-                        transaction_id      = <<0,2>>,
-                        active_transactions = [{find_node, <<0,1>>}]
+                        ip_port    = {{12,34,92,155}, 6862},
+                        tx_id      = <<0,2>>,
+                        active_txs = [{find_node, <<0,1>>}]
                     },
                     #node{ip_port = {{12,34,92,158}, 6865}}
                 ]
@@ -533,9 +533,9 @@ do_find_node_async_test_() ->
                                 distance = 2,
                                 nodes    = [
                                     #node{
-                                        ip_port             = {{12,34,92,155}, 6862},
-                                        transaction_id      = <<0,3>>,
-                                        active_transactions = [{find_node, <<0,2>>}, {find_node, <<0,1>>}]
+                                        ip_port    = {{12,34,92,155}, 6862},
+                                        tx_id      = <<0,3>>,
+                                        active_txs = [{find_node, <<0,2>>}, {find_node, <<0,1>>}]
                                     },
                                     #node{ip_port = {{12,34,92,158}, 6865}}
                                 ]
@@ -569,9 +569,9 @@ do_get_peers_async_test_() ->
                 distance = 2,
                 nodes    = [
                     Node = #node{
-                        ip_port             = {{12,34,92,155}, 6862},
-                        transaction_id      = <<0,2>>,
-                        active_transactions = [{find_node, <<0,1>>}]
+                        ip_port    = {{12,34,92,155}, 6862},
+                        tx_id      = <<0,2>>,
+                        active_txs = [{find_node, <<0,1>>}]
                     },
                     #node{ip_port = {{12,34,92,158}, 6865}}
                 ]
@@ -602,9 +602,9 @@ do_get_peers_async_test_() ->
                                 distance = 2,
                                 nodes    = [
                                     #node{
-                                        ip_port             = {{12,34,92,155}, 6862},
-                                        transaction_id      = <<0,3>>,
-                                        active_transactions = [{get_peers, <<0,2>>}, {find_node, <<0,1>>}]
+                                        ip_port    = {{12,34,92,155}, 6862},
+                                        tx_id      = <<0,3>>,
+                                        active_txs = [{get_peers, <<0,2>>}, {find_node, <<0,1>>}]
                                     },
                                     #node{ip_port = {{12,34,92,158}, 6865}}
                                 ]
@@ -685,31 +685,31 @@ get_bucket_and_node_test_() ->
 %%
 %%
 %%
-update_transaction_id_test_() ->
+update_tx_id_test_() ->
     {setup,
         fun() -> ok end,
         fun(_) -> ok end,
         [{"First transaction ID.",
             fun() ->
                 ?assertEqual(
-                    #node{transaction_id = <<0,1>>},
-                    erline_dht_bucket:update_transaction_id(#node{})
+                    #node{tx_id = <<0,1>>},
+                    erline_dht_bucket:update_tx_id(#node{})
                 )
             end
         },
         {"Last transaction ID.",
             fun() ->
                 ?assertEqual(
-                    #node{transaction_id = <<0,0>>},
-                    erline_dht_bucket:update_transaction_id(#node{transaction_id = <<255,255>>})
+                    #node{tx_id = <<0,0>>},
+                    erline_dht_bucket:update_tx_id(#node{tx_id = <<255,255>>})
                 )
             end
         },
         {"Usual transaction ID.",
             fun() ->
                 ?assertEqual(
-                    #node{transaction_id = <<12,141>>},
-                    erline_dht_bucket:update_transaction_id(#node{transaction_id = <<12,140>>})
+                    #node{tx_id = <<12,141>>},
+                    erline_dht_bucket:update_tx_id(#node{tx_id = <<12,140>>})
                 )
             end
         }]
@@ -1095,18 +1095,18 @@ update_bucket_nodes_status_test_() ->
                                     status       = not_active
                                 },
                                 #node{ % Changed to suspicious, pinged one more time
-                                    ip_port             = {{12,34,92,160}, 6867},
-                                    last_changed        = {{2020,7,1},{14,30,20}},
-                                    status              = suspicious,
-                                    active_transactions = [{ping,<<0,0>>}],
-                                    transaction_id      = <<0,1>>
+                                    ip_port         = {{12,34,92,160}, 6867},
+                                    last_changed    = {{2020,7,1},{14,30,20}},
+                                    status          = suspicious,
+                                    active_txs      = [{ping,<<0,0>>}],
+                                    tx_id           = <<0,1>>
                                 },
                                 #node{ % Changed to suspicious, pinged one more time
-                                    ip_port             = {{12,34,92,161}, 6868},
-                                    last_changed        = {{2020,7,1},{15,0,0}},
-                                    status              = suspicious,
-                                    active_transactions = [{ping,<<0,0>>}],
-                                    transaction_id      = <<0,1>>
+                                    ip_port         = {{12,34,92,161}, 6868},
+                                    last_changed    = {{2020,7,1},{15,0,0}},
+                                    status          = suspicious,
+                                    active_txs      = [{ping,<<0,0>>}],
+                                    tx_id           = <<0,1>>
                                 },
                                 #node{ % Changed to not_active
                                     ip_port      = {{12,34,92,162}, 6869},
@@ -1129,11 +1129,11 @@ update_bucket_nodes_status_test_() ->
                                     status       = not_active
                                 },
                                 #node{ % Changed to suspicious, pinged one more time
-                                    ip_port             = {{12,34,92,166}, 6873},
-                                    last_changed        = {{2020,7,1},{20,0,0}},
-                                    status              = suspicious,
-                                    active_transactions = [{ping,<<0,0>>}],
-                                    transaction_id      = <<0,1>>
+                                    ip_port         = {{12,34,92,166}, 6873},
+                                    last_changed    = {{2020,7,1},{20,0,0}},
+                                    status          = suspicious,
+                                    active_txs      = [{ping,<<0,0>>}],
+                                    tx_id           = <<0,1>>
                                 }
                             ]
                         },

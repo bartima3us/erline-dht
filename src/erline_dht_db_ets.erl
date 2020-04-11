@@ -179,7 +179,7 @@ get_requested_node(Ip, Port, InfoHash) ->
 ) -> false | binary().
 
 get_info_hash(Ip, Port, TxId) ->
-    Request = #requested_node{ip_port = {Ip, Port}, transaction_id = TxId, _ = '_'},
+    Request = #requested_node{ip_port = {Ip, Port}, tx_id = TxId, _ = '_'},
     case ets:match_object(?REQUESTED_NODES_TABLE, Request) of
         [#requested_node{info_hash = InfoHash}] -> InfoHash;
         [] -> false

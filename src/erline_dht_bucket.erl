@@ -46,7 +46,8 @@
     do_find_node_async/4,
     do_get_peers_async/4,
     get_bucket_and_node/3,
-    update_transaction_id/1,
+    update_tx_id/1,
+    update_node/4,
     update_bucket/3,
     maybe_clear_bucket/2,
     find_local_peers_by_info_hash/2,
@@ -393,9 +394,9 @@ handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{}) ->
             last_changed    = erline_dht_helper:local_time()
         },
         RequestedNode = #requested_node{
-            ip_port         = {RequestedIp, RequestedPort},
-            transaction_id  = TxId,
-            info_hash       = InfoHash
+            ip_port     = {RequestedIp, RequestedPort},
+            tx_id       = TxId,
+            info_hash   = InfoHash
         },
         true = DbMod:insert_to_get_peers_searches(GetPeersSearch),
         true = DbMod:insert_to_requested_nodes(RequestedNode),
@@ -424,7 +425,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         event_mgr_pid = EventMgrPid
     } = State,
     {Bucket, ActiveTx} = case get_bucket_and_node(Ip, Port, State) of
-        {ok, NodeBucket, #node{active_transactions = NodeActiveTx}} ->
+        {ok, NodeBucket, #node{active_txs = NodeActiveTx}} ->
             {NodeBucket, NodeActiveTx};
         false ->
             ok = add_node(Ip, Port),
@@ -472,14 +473,14 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         {error, {krpc_error, Reason}, NewActiveTx} ->
             ok = erline_dht_helper:notify(EventMgrPid, {error, r, Ip, Port, Reason}),
             Params = [
-                {last_changed,        erline_dht_helper:local_time()},
-                {active_transactions, NewActiveTx}
+                {last_changed, erline_dht_helper:local_time()},
+                {active_txs,   NewActiveTx}
             ],
             update_node(Ip, Port, Params, State);
         {error, {bad_type, _BadType}, NewActiveTx} ->
             Params = [
-                {last_changed,        erline_dht_helper:local_time()},
-                {active_transactions, NewActiveTx}
+                {last_changed, erline_dht_helper:local_time()},
+                {active_txs,   NewActiveTx}
             ],
             update_node(Ip, Port, Params, State);
         {error, {non_existing_tx, _TxId}} ->
@@ -613,17 +614,17 @@ handle_ping_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State) ->
                     case CurrDist =:= NewDist of
                         % If hash is the same, update node data
                         true ->
-                            update_node(Ip, Port, Params ++ [{active_transactions, NewActiveTx}], State);
+                            update_node(Ip, Port, Params ++ [{active_txs, NewActiveTx}], State);
                          % If hash is changed, move node to another bucket
                         false ->
                             case maybe_clear_bucket(NewDist, State) of
-                                {true, NewState0}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}, {active_transactions, NewActiveTx}], NewState0);
-                                {false, NewState0} -> update_node(Ip, Port, Params ++ [unassign, {active_transactions, NewActiveTx}], NewState0)
+                                {true, NewState0}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}, {active_txs, NewActiveTx}], NewState0);
+                                {false, NewState0} -> update_node(Ip, Port, Params ++ [unassign, {active_txs, NewActiveTx}], NewState0)
                             end
                     end;
                 % New node
                 false ->
-                    NewState0 = update_node(Ip, Port, [{active_transactions, NewActiveTx}], State),
+                    NewState0 = update_node(Ip, Port, [{active_txs, NewActiveTx}], State),
                     %{ok, TargetHash} = erline_dht_helper:get_hash_of_distance(MyNodeHash, crypto:rand_uniform(1, erlang:bit_size(MyNodeHash))),
                     {ok, NewState1} = do_find_node_async(Ip, Port, MyNodeHash, NewState0),
                     case maybe_clear_bucket(NewDist, NewState1) of
@@ -634,10 +635,10 @@ handle_ping_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State) ->
             end;
         {error, _Reason} ->
             Params = [
-                {hash,                NewNodeHash},
-                {last_changed,        erline_dht_helper:local_time()},
-                {status,              not_active},
-                {active_transactions, NewActiveTx}
+                {hash,         NewNodeHash},
+                {last_changed, erline_dht_helper:local_time()},
+                {status,       not_active},
+                {active_txs,   NewActiveTx}
             ],
             update_node(Ip, Port, Params, State)
     end.
@@ -665,8 +666,8 @@ handle_find_node_response(Ip, Port, Nodes, NewActiveTx, State) ->
         ok = add_node(FoundIp, FoundPort, FoundedHash)
     end, Nodes),
     Params = [
-        {last_changed,        erline_dht_helper:local_time()},
-        {active_transactions, NewActiveTx}
+        {last_changed, erline_dht_helper:local_time()},
+        {active_txs,   NewActiveTx}
     ],
     update_node(Ip, Port, Params, State).
 
@@ -725,9 +726,9 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, State) ->
             end
     end,
     Params = [
-        {token_received,      Token},
-        {last_changed,        erline_dht_helper:local_time()},
-        {active_transactions, NewActiveTx}
+        {token_received, Token},
+        {last_changed,   erline_dht_helper:local_time()},
+        {active_txs,     NewActiveTx}
     ],
     update_node(Ip, Port, Params, NewState0).
 
@@ -753,10 +754,10 @@ do_ping_async(Ip, Port, State = #state{}) when is_tuple(Ip), is_integer(Port) ->
 
 do_ping_async(Bucket, Node = #node{ip_port = {Ip, Port}}, State = #state{}) ->
     #state{my_node_hash = MyNodeHash, socket = Socket} = State,
-    #node{transaction_id = TxId, active_transactions = CurrActiveTx} = Node,
+    #node{tx_id = TxId, active_txs = CurrActiveTx} = Node,
     Params = [
-        transaction_id,
-        {active_transactions, [{ping, TxId} | CurrActiveTx]}
+        tx_id,
+        {active_txs, [{ping, TxId} | CurrActiveTx]}
     ],
     NewState = update_node(Bucket, Node, Params, State),
     ok = erline_dht_message:send_ping(Ip, Port, Socket, TxId, MyNodeHash),
@@ -781,10 +782,10 @@ do_find_node_async(Ip, Port, Target, State = #state{}) when is_tuple(Ip), is_int
 
 do_find_node_async(Bucket, Node = #node{ip_port = {Ip, Port}}, Target, State = #state{}) ->
     #state{my_node_hash = MyNodeHash, socket = Socket} = State,
-    #node{transaction_id = TxId, active_transactions = CurrActiveTx} = Node,
+    #node{tx_id = TxId, active_txs = CurrActiveTx} = Node,
     Params = [
-        transaction_id,
-        {active_transactions, [{find_node, TxId} | CurrActiveTx]}
+        tx_id,
+        {active_txs, [{find_node, TxId} | CurrActiveTx]}
     ],
     NewState = update_node(Bucket, Node, Params, State),
     ok = erline_dht_message:send_find_node(Ip, Port, Socket, TxId, MyNodeHash, Target),
@@ -809,10 +810,10 @@ do_get_peers_async(Ip, Port, InfoHash, State = #state{}) when is_tuple(Ip), is_i
 
 do_get_peers_async(Bucket, Node = #node{ip_port = {Ip, Port}}, InfoHash, State = #state{}) ->
     #state{my_node_hash = MyNodeHash, socket = Socket} = State,
-    #node{transaction_id = TxId, active_transactions = CurrActiveTx} = Node,
+    #node{tx_id = TxId, active_txs = CurrActiveTx} = Node,
     Params = [
-        transaction_id,
-        {active_transactions, [{get_peers, TxId} | CurrActiveTx]}
+        tx_id,
+        {active_txs, [{get_peers, TxId} | CurrActiveTx]}
     ],
     NewState = update_node(Bucket, Node, Params, State),
     ok = erline_dht_message:send_get_peers(Ip, Port, Socket, TxId, MyNodeHash, InfoHash),
@@ -854,25 +855,26 @@ get_bucket_and_node(Ip, Port, [Bucket = #bucket{nodes = Nodes} | Buckets]) ->
 %%  @doc
 %%  Increase node current transaction ID by 1.
 %%  @end
--spec update_transaction_id(
+-spec update_tx_id(
     Node :: #node{}
 ) -> NewNode :: #node{}.
 
-update_transaction_id(Node = #node{transaction_id = undefined}) ->
-    Node#node{transaction_id = <<0,0>>};
+update_tx_id(Node = #node{tx_id = undefined}) ->
+    Node#node{tx_id = <<0,0>>};
 
-update_transaction_id(Node = #node{transaction_id = <<255,255>>}) ->
-    Node#node{transaction_id = <<0,0>>};
+update_tx_id(Node = #node{tx_id = <<255,255>>}) ->
+    Node#node{tx_id = <<0,0>>};
 
-update_transaction_id(Node = #node{transaction_id = LastTransactionIdBin}) ->
-    <<LastTransactionIdInt:16>> = LastTransactionIdBin,
-    NewTransactionIdInt = LastTransactionIdInt + 1,
-    Node#node{transaction_id = <<NewTransactionIdInt:16>>}.
+update_tx_id(Node = #node{tx_id = LastTxIdBin}) ->
+    <<LastTxIdInt:16>> = LastTxIdBin,
+    NewTxIdInt = LastTxIdInt + 1,
+    Node#node{tx_id = <<NewTxIdInt:16>>}.
 
 
-%%
-%%  @todo test
-%%
+%%  @private
+%%  @doc
+%%  Update node by given parameters.
+%%  @end
 -spec update_node(
     Ip      :: inet:ip_address(),
     Port    :: inet:port_number(),
@@ -880,8 +882,8 @@ update_transaction_id(Node = #node{transaction_id = LastTransactionIdBin}) ->
                 {token_sent, TokenSent :: binary()} |
                 {token_received, TokenReceived :: binary()} |
                 {last_changed, LastChanged :: calendar:datetime()} |
-                {active_transactions, [ActiveTx :: active_tx()]} |
-                transaction_id |
+                {active_txs, [ActiveTx :: active_tx()]} |
+                tx_id |
                 {status, Status :: status()} |
                 {assign, Dist :: distance()} |
                 unassign],
@@ -910,10 +912,10 @@ update_node(Bucket, Node = #node{ip_port = {Ip, Port}}, Params, State = #state{}
             AccNode#node{token_received = TokenReceived};
         ({last_changed, LastChanged}, AccNode) ->
             AccNode#node{last_changed = LastChanged};
-        ({active_transactions, ActiveTx}, AccNode) ->
-            AccNode#node{active_transactions = ActiveTx};
-        (transaction_id, AccNode) ->
-            update_transaction_id(AccNode);
+        ({active_txs, ActiveTx}, AccNode) ->
+            AccNode#node{active_txs = ActiveTx};
+        (tx_id, AccNode) ->
+            update_tx_id(AccNode);
         ({status, Status}, AccNode) ->
             AccNode#node{status = Status};
         ({assign, _Dist}, AccNode) ->

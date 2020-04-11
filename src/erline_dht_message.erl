@@ -38,15 +38,15 @@
 %%  Create `ping` request and send it.
 %%  @end
 -spec send_ping(
-    Ip              :: inet:ip_address(),
-    Port            :: inet:port_number(),
-    Socket          :: port(),
-    TransactionId   :: tx_id(),
-    MyNodeId        :: binary()
+    Ip          :: inet:ip_address(),
+    Port        :: inet:port_number(),
+    Socket      :: port(),
+    TxId        :: tx_id(),
+    MyNodeId    :: binary()
 ) -> ok.
 
-send_ping(Ip, Port, Socket, TransactionId, MyNodeId) ->
-    Payload = ping_request(TransactionId, MyNodeId),
+send_ping(Ip, Port, Socket, TxId, MyNodeId) ->
+    Payload = ping_request(TxId, MyNodeId),
     ok = socket_send(Socket, Ip, Port, Payload).
 
 
@@ -54,15 +54,15 @@ send_ping(Ip, Port, Socket, TransactionId, MyNodeId) ->
 %%  Create `ping` response and send it.
 %%  @end
 -spec respond_ping(
-    Ip              :: inet:ip_address(),
-    Port            :: inet:port_number(),
-    Socket          :: port(),
-    MyNodeId        :: binary(),
-    TransactionId   :: tx_id()
+    Ip          :: inet:ip_address(),
+    Port        :: inet:port_number(),
+    Socket      :: port(),
+    MyNodeId    :: binary(),
+    TxId        :: tx_id()
 ) -> ok.
 
-respond_ping(Ip, Port, Socket, MyNodeId, TransactionId) ->
-    Payload = ping_response(TransactionId, MyNodeId),
+respond_ping(Ip, Port, Socket, MyNodeId, TxId) ->
+    Payload = ping_response(TxId, MyNodeId),
     ok = socket_send(Socket, Ip, Port, Payload).
 
 
@@ -73,13 +73,13 @@ respond_ping(Ip, Port, Socket, MyNodeId, TransactionId) ->
     Ip              :: inet:ip_address(),
     Port            :: inet:port_number(),
     Socket          :: port(),
-    TransactionId   :: tx_id(),
+    TxId            :: tx_id(),
     MyNodeId        :: binary(),
     TargetNodeId    :: binary()
 ) -> ok.
 
-send_find_node(Ip, Port, Socket, TransactionId, MyNodeId, TargetNodeId) ->
-    Payload = find_node_request(TransactionId, MyNodeId, TargetNodeId),
+send_find_node(Ip, Port, Socket, TxId, MyNodeId, TargetNodeId) ->
+    Payload = find_node_request(TxId, MyNodeId, TargetNodeId),
     ok = socket_send(Socket, Ip, Port, Payload).
 
 
@@ -90,13 +90,13 @@ send_find_node(Ip, Port, Socket, TransactionId, MyNodeId, TargetNodeId) ->
     Ip              :: inet:ip_address(),
     Port            :: inet:port_number(),
     Socket          :: port(),
-    TransactionId   :: tx_id(),
+    TxId            :: tx_id(),
     MyNodeId        :: binary(),
     TargetNodeId    :: binary()
 ) -> ok.
 
-send_get_peers(Ip, Port, Socket, TransactionId, MyNodeId, InfoHash) ->
-    Payload = get_peers_request(TransactionId, MyNodeId, InfoHash),
+send_get_peers(Ip, Port, Socket, TxId, MyNodeId, InfoHash) ->
+    Payload = get_peers_request(TxId, MyNodeId, InfoHash),
     ok = socket_send(Socket, Ip, Port, Payload).
 
 
@@ -104,15 +104,15 @@ send_get_peers(Ip, Port, Socket, TransactionId, MyNodeId, InfoHash) ->
 %%  Get `ping` request. http://www.bittorrent.org/beps/bep_0005.html#ping
 %%  @end
 -spec ping_request(
-    TransactionId :: tx_id(),
-    NodeId        :: binary()
+    TxId    :: tx_id(),
+    NodeId  :: binary()
 ) -> Request :: binary().
 
-ping_request(TransactionId, NodeId) ->
+ping_request(TxId, NodeId) ->
     Args = [
         {<<"id">>, NodeId}
     ],
-    Request = krpc_request(TransactionId, q, <<"ping">>, Args),
+    Request = krpc_request(TxId, q, <<"ping">>, Args),
     erline_dht_bencoding:encode(Request).
 
 
@@ -120,15 +120,15 @@ ping_request(TransactionId, NodeId) ->
 %%  Do response to `ping` request. http://www.bittorrent.org/beps/bep_0005.html#ping
 %%  @end
 -spec ping_response(
-    TransactionId :: tx_id(),
-    NodeId        :: binary()
+    TxId    :: tx_id(),
+    NodeId  :: binary()
 ) -> Response :: binary().
 
-ping_response(TransactionId, NodeId) ->
+ping_response(TxId, NodeId) ->
     Args = [
         {<<"id">>, NodeId}
     ],
-    Response = krpc_request(TransactionId, r, Args),
+    Response = krpc_request(TxId, r, Args),
     erline_dht_bencoding:encode(Response).
 
 
@@ -136,17 +136,17 @@ ping_response(TransactionId, NodeId) ->
 %%  Get `find_node` request. http://www.bittorrent.org/beps/bep_0005.html#find-node
 %%  @end
 -spec find_node_request(
-    TransactionId :: tx_id(),
-    NodeId        :: binary(),
-    Target        :: binary()
+    TxId    :: tx_id(),
+    NodeId  :: binary(),
+    Target  :: binary()
 ) -> Request :: binary().
 
-find_node_request(TransactionId, NodeId, Target) ->
+find_node_request(TxId, NodeId, Target) ->
     Args = [
         {<<"id">>, NodeId},
         {<<"target">>, Target}
     ],
-    Request = krpc_request(TransactionId, q, <<"find_node">>, Args),
+    Request = krpc_request(TxId, q, <<"find_node">>, Args),
     erline_dht_bencoding:encode(Request).
 
 
@@ -154,17 +154,17 @@ find_node_request(TransactionId, NodeId, Target) ->
 %%  Do response to `find_node` request. http://www.bittorrent.org/beps/bep_0005.html#find-node
 %%  @end
 -spec find_node_response(
-    TransactionId :: tx_id(),
-    NodeId        :: binary(),
-    Nodes         :: binary()
+    TxId    :: tx_id(),
+    NodeId  :: binary(),
+    Nodes   :: binary()
 ) -> Response :: binary().
 
-find_node_response(TransactionId, NodeId, Nodes) ->
+find_node_response(TxId, NodeId, Nodes) ->
     Args = [
         {<<"id">>, NodeId},
         {<<"nodes">>, Nodes}
     ],
-    Response = krpc_request(TransactionId, r, Args),
+    Response = krpc_request(TxId, r, Args),
     erline_dht_bencoding:encode(Response).
 
 
@@ -172,17 +172,17 @@ find_node_response(TransactionId, NodeId, Nodes) ->
 %%  Get `get_peers` request. http://www.bittorrent.org/beps/bep_0005.html#get-peers
 %%  @end
 -spec get_peers_request(
-    TransactionId :: tx_id(),
-    NodeId        :: binary(),
-    InfoHash      :: binary()
+    TxId        :: tx_id(),
+    NodeId      :: binary(),
+    InfoHash    :: binary()
 ) -> Request :: binary().
 
-get_peers_request(TransactionId, NodeId, InfoHash) ->
+get_peers_request(TxId, NodeId, InfoHash) ->
     Args = [
         {<<"id">>, NodeId},
         {<<"info_hash">>, InfoHash}
     ],
-    Request = krpc_request(TransactionId, q, <<"get_peers">>, Args),
+    Request = krpc_request(TxId, q, <<"get_peers">>, Args),
     erline_dht_bencoding:encode(Request).
 
 
@@ -191,34 +191,34 @@ get_peers_request(TransactionId, NodeId, InfoHash) ->
 %%  @end
 -spec get_peers_response
     (
-        TransactionId :: tx_id(),
-        NodeId        :: binary(),
-        Token         :: binary(),
-        Peers         :: [binary()]
+        TxId    :: tx_id(),
+        NodeId  :: binary(),
+        Token   :: binary(),
+        Peers   :: [binary()]
     ) -> Response :: binary();
     (
-        TransactionId :: tx_id(),
-        NodeId        :: binary(),
-        Token         :: binary(),
-        Nodes         :: binary()
+        TxId    :: tx_id(),
+        NodeId  :: binary(),
+        Token   :: binary(),
+        Nodes   :: binary()
     ) -> Response :: binary().
 
-get_peers_response(TransactionId, NodeId, Token, Peers) when is_list(Peers) ->
+get_peers_response(TxId, NodeId, Token, Peers) when is_list(Peers) ->
     Args = [
         {<<"id">>, NodeId},
         {<<"token">>, Token},
         {<<"values">>, {list, Peers}}
     ],
-    Response = krpc_request(TransactionId, r, Args),
+    Response = krpc_request(TxId, r, Args),
     erline_dht_bencoding:encode(Response);
 
-get_peers_response(TransactionId, NodeId, Token, Nodes) ->
+get_peers_response(TxId, NodeId, Token, Nodes) ->
     Args = [
         {<<"id">>, NodeId},
         {<<"token">>, Token},
         {<<"nodes">>, Nodes}
     ],
-    Response = krpc_request(TransactionId, r, Args),
+    Response = krpc_request(TxId, r, Args),
     erline_dht_bencoding:encode(Response).
 
 
@@ -226,15 +226,15 @@ get_peers_response(TransactionId, NodeId, Token, Nodes) ->
 %%  Get `announce_peer` request. http://www.bittorrent.org/beps/bep_0005.html#announce-peer
 %%  @end
 -spec announce_peer_request(
-    TransactionId :: tx_id(),
-    NodeId        :: binary(),
-    ImpliedPort   :: 0 | 1,
-    InfoHash      :: binary(),
-    Port          :: inet:port_number(),
-    Token         :: binary()
+    TxId        :: tx_id(),
+    NodeId      :: binary(),
+    ImpliedPort :: 0 | 1,
+    InfoHash    :: binary(),
+    Port        :: inet:port_number(),
+    Token       :: binary()
 ) -> Request :: binary().
 
-announce_peer_request(TransactionId, NodeId, ImpliedPort, InfoHash, Port, Token) when
+announce_peer_request(TxId, NodeId, ImpliedPort, InfoHash, Port, Token) when
     ImpliedPort =:= 0;
     ImpliedPort =:= 1
     ->
@@ -245,7 +245,7 @@ announce_peer_request(TransactionId, NodeId, ImpliedPort, InfoHash, Port, Token)
         {<<"port">>, Port},
         {<<"token">>, Token}
     ],
-    Request = krpc_request(TransactionId, q, <<"announce_peer">>, Args),
+    Request = krpc_request(TxId, q, <<"announce_peer">>, Args),
     erline_dht_bencoding:encode(Request).
 
 
@@ -253,15 +253,15 @@ announce_peer_request(TransactionId, NodeId, ImpliedPort, InfoHash, Port, Token)
 %%  Do response to `announce_peer` request. http://www.bittorrent.org/beps/bep_0005.html#announce-peer
 %%  @end
 -spec announce_peer_response(
-    TransactionId :: tx_id(),
-    NodeId        :: binary()
+    TxId    :: tx_id(),
+    NodeId  :: binary()
 ) -> Response :: binary().
 
-announce_peer_response(TransactionId, NodeId) ->
+announce_peer_response(TxId, NodeId) ->
     Args = [
         {<<"id">>, NodeId}
     ],
-    Response = krpc_request(TransactionId, r, Args),
+    Response = krpc_request(TxId, r, Args),
     erline_dht_bencoding:encode(Response).
 
 
@@ -269,18 +269,18 @@ announce_peer_response(TransactionId, NodeId) ->
 %%  Do error response. http://www.bittorrent.org/beps/bep_0005.html#errors
 %%  @end
 -spec error_response(
-    TransactionId       :: tx_id(),
+    TxId                :: tx_id(),
     ErrorCode           :: krpc_error_code(),
     ErrorDescription    :: binary()
 ) -> Response :: binary().
 
-error_response(TransactionId, ErrorCode, ErrorDescription) when
+error_response(TxId, ErrorCode, ErrorDescription) when
     ErrorCode =:= 201;
     ErrorCode =:= 202;
     ErrorCode =:= 203;
     ErrorCode =:= 204
     ->
-    Response = krpc_request(TransactionId, e, [ErrorCode, ErrorDescription]),
+    Response = krpc_request(TxId, e, [ErrorCode, ErrorDescription]),
     erline_dht_bencoding:encode(Response).
 
 
@@ -364,27 +364,27 @@ parse_krpc_response(Response, ActiveTxs) ->
     % @todo finish spec
     % @todo tests
     (
-        Type            :: ping,
-        TransactionId   :: tx_id(),
-        Resp            :: dict:dict()
+        Type    :: ping,
+        TxId    :: tx_id(),
+        Resp    :: dict:dict()
     ) -> NodeHash :: binary();
     (
-        Type            :: find_node,
-        TransactionId   :: tx_id(),
-        Resp            :: dict:dict()
+        Type    :: find_node,
+        TxId    :: tx_id(),
+        Resp    :: dict:dict()
     ) -> [parsed_compact_node_info()];
     (
-        Type            :: get_peers,
-        TransactionId   :: tx_id(),
-        Resp            :: dict:dict()
+        Type    :: get_peers,
+        TxId    :: tx_id(),
+        Resp    :: dict:dict()
     ) -> {nodes, TxId :: tx_id(), Nodes :: [parsed_compact_node_info()], PeerToken :: binary()} |
          {peers, TxId :: tx_id(), Peers :: [parsed_peer_info()],         PeerToken :: binary()}.
 
-parse_response_dict(ping, _TransactionId, Resp) ->
+parse_response_dict(ping, _TxId, Resp) ->
     {ok, NodeHash} = dict:find(<<"id">>, Resp),
     NodeHash;
 
-parse_response_dict(find_node, _TransactionId, Resp) ->
+parse_response_dict(find_node, _TxId, Resp) ->
     case dict:find(<<"nodes">>, Resp) of
         {ok, CompactNodeInfo} ->
             erline_dht_helper:parse_compact_node_info(CompactNodeInfo);
@@ -392,7 +392,7 @@ parse_response_dict(find_node, _TransactionId, Resp) ->
             []
     end;
 
-parse_response_dict(get_peers, TransactionId, Resp) ->
+parse_response_dict(get_peers, TxId, Resp) ->
     PeerToken = case dict:find(<<"token">>, Resp) of
         {ok, Token} -> Token;
         error       -> <<>>
@@ -400,14 +400,14 @@ parse_response_dict(get_peers, TransactionId, Resp) ->
     case dict:find(<<"values">>, Resp) of
         {ok, {list, PeerInfoList}} ->
             ParsedPeerInfoList = erline_dht_helper:parse_peer_info(PeerInfoList),
-            {peers, TransactionId, ParsedPeerInfoList, PeerToken};
+            {peers, TxId, ParsedPeerInfoList, PeerToken};
         error ->
             case dict:find(<<"nodes">>, Resp) of
                 {ok, CompactNodeInfo} ->
                     ParsedCompactNodeInfo = erline_dht_helper:parse_compact_node_info(CompactNodeInfo),
-                    {nodes, TransactionId, ParsedCompactNodeInfo, PeerToken};
+                    {nodes, TxId, ParsedCompactNodeInfo, PeerToken};
                 error ->
-                    {nodes, TransactionId, [], PeerToken}
+                    {nodes, TxId, [], PeerToken}
             end
     end.
 
@@ -417,18 +417,18 @@ parse_response_dict(get_peers, TransactionId, Resp) ->
 %%  Make KRPC query request. http://bittorrent.org/beps/bep_0005.html#krpc-protocol
 %%  @end
 -spec krpc_request(
-    TransactionId   :: tx_id(),
-    Type            :: q,
-    Query           :: binary(),
-    Args            :: [{Arg :: binary(), Val :: binary()}]
+    TxId   :: tx_id(),
+    Type   :: q,
+    Query  :: binary(),
+    Args   :: [{Arg :: binary(), Val :: binary()}]
 ) -> {dict, Request :: dict:dict()}.
 
-krpc_request(TransactionId, q, Query, Args) ->
+krpc_request(TxId, q, Query, Args) ->
     A = lists:foldl(fun ({Arg, Val}, AAcc) ->
         dict:store(Arg, Val, AAcc)
     end, dict:new(), Args),
     Type = <<"q">>,
-    Req0 = dict:store(<<"t">>, TransactionId, dict:new()),
+    Req0 = dict:store(<<"t">>, TxId, dict:new()),
     Req1 = dict:store(<<"y">>, Type, Req0),
     Req2 = dict:store(Type, Query, Req1),
     Req3 = dict:store(<<"a">>, {dict, A}, Req2),
@@ -441,30 +441,30 @@ krpc_request(TransactionId, q, Query, Args) ->
 %%  @end
 -spec krpc_request
     (
-        TransactionId   :: tx_id(),
-        Type            :: r,
-        Response        :: [{Arg :: binary(), Val :: binary()}]
+        TxId        :: tx_id(),
+        Type        :: r,
+        Response    :: [{Arg :: binary(), Val :: binary()}]
     ) -> {dict, Request :: dict:dict()};
     (
-        TransactionId   :: tx_id(),
+        TxId   :: tx_id(),
         Type            :: e,
         Error           :: [term()]
     ) -> {dict, Request :: dict:dict()}.
 
-krpc_request(TransactionId, r, Response) ->
+krpc_request(TxId, r, Response) ->
     % Normal response
     Type = <<"r">>,
     R = lists:foldl(fun ({Arg, Val}, RAcc) ->
         dict:store(Arg, Val, RAcc)
     end, dict:new(), Response),
-    Req0 = dict:store(<<"t">>, TransactionId, dict:new()),
+    Req0 = dict:store(<<"t">>, TxId, dict:new()),
     Req1 = dict:store(<<"y">>, Type, Req0),
     Req2 = dict:store(<<"r">>, {dict, R}, Req1),
     {dict, Req2};
 
-krpc_request(TransactionId, e, Error = [_Code, _Description]) ->
+krpc_request(TxId, e, Error = [_Code, _Description]) ->
     Type = <<"e">>,
-    Req0 = dict:store(<<"t">>, TransactionId, dict:new()),
+    Req0 = dict:store(<<"t">>, TxId, dict:new()),
     Req1 = dict:store(<<"y">>, Type, Req0),
     Req2 = dict:store(<<"e">>, {list, Error}, Req1),
     {dict, Req2}.
