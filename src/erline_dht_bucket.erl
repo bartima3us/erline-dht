@@ -50,6 +50,7 @@
     update_node/4,
     update_bucket/3,
     maybe_clear_bucket/2,
+    find_n_closest_nodes/3,
     find_local_peers_by_info_hash/2,
     add_peer/4,
     clear_peers_searches/1,
@@ -1081,16 +1082,27 @@ maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
     end.
 
 
-%%
-%%
-%%
-%%find_n_closest_nodes(Hash, N, State = #state{buckets = Buckets}) ->
-%%    find_n_closest_nodes(Hash, N, Buckets, []).
-%%
-%%find_n_closest_nodes(_Hash, N, Buckets, Result) when N =:= 0; Buckets =:= [] ->
-%%    Result.
+%%  @private
+%%  @doc
+%%  Find N closest nodes for the given hash.
+%%  @end
+-spec find_n_closest_nodes(
+    Hash    :: binary(),
+    N       :: pos_integer(),
+    State   :: #state{}
+) -> ClosestNodes :: [{IpPort :: {inet:ip_address(), inet:port_number()}, NodeHash :: binary()}].
 
-%%find_n_closest_nodes(Hash, N, Buckets, Result)
+find_n_closest_nodes(Hash, N, #state{buckets = Buckets}) ->
+    AllNodes = lists:flatten(lists:map(fun (#bucket{nodes = Nodes}) ->
+        Nodes
+    end, Buckets)),
+    NodesWithDist = lists:foldl(fun (#node{hash = NodeHash, ip_port = IpPort}, AccNodes) ->
+        case erline_dht_helper:get_distance(Hash, NodeHash) of
+            {ok, Distance}   -> [{Distance, IpPort, NodeHash} | AccNodes];
+            {error, _Reason} -> AccNodes
+        end
+    end, [], AllNodes),
+    [{IpPort, Hash} || {_, IpPort, Hash} <- lists:sublist(lists:usort(NodesWithDist), N)].
 
 
 %%  @private

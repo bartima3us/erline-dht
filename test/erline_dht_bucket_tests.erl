@@ -1137,6 +1137,68 @@ maybe_clear_bucket_test_() ->
 %%
 %%
 %%
+find_n_closest_nodes_test_() ->
+    State = #state{
+        buckets = [
+            #bucket{
+                distance = 1,
+                nodes    = [
+                    #node{ip_port = {{12,34,92,156}, 6863}, hash = <<"h45h1">>},
+                    #node{ip_port = {{12,34,92,157}, 6864}, hash = <<"h45h2">>},
+                    #node{ip_port = {{12,34,92,158}, 6865}, hash = <<"h45h3">>},
+                    #node{ip_port = {{12,34,92,159}, 6866}, hash = <<"h45h4">>}
+                ]
+            },
+            #bucket{
+                distance = 2,
+                nodes    = [
+                    #node{ip_port = {{12,34,92,160}, 6868}, hash = <<"h45h5_false">>},
+                    #node{ip_port = {{12,34,92,161}, 6868}, hash = <<"h45h6">>},
+                    #node{ip_port = {{12,34,92,162}, 6869}, hash = <<"h45h7">>}
+                ]
+            }
+        ]
+    },
+    {setup,
+        fun() ->
+            ok = meck:new(erline_dht_helper),
+            ok = meck:expect(erline_dht_helper, get_distance, fun
+                (<<"h45h0">>, <<"h45h1">>)       -> {ok, 3};
+                (<<"h45h0">>, <<"h45h2">>)       -> {ok, 4};
+                (<<"h45h0">>, <<"h45h3">>)       -> {ok, 3};
+                (<<"h45h0">>, <<"h45h4">>)       -> {ok, 2};
+                (<<"h45h0">>, <<"h45h5_false">>) -> {error, {different_hash_length, <<"h45h0">>, <<"h45h5_false">>}};
+                (<<"h45h0">>, <<"h45h6">>)       -> {ok, 7};
+                (<<"h45h0">>, <<"h45h7">>)       -> {ok, 5}
+            end)
+        end,
+        fun(_) ->
+            true = meck:validate(erline_dht_helper),
+            ok = meck:unload(erline_dht_helper)
+        end,
+        [{"Find N closest nodes.",
+            fun() ->
+                ?assertEqual(
+                    [
+                        {{{12,34,92,159}, 6866}, <<"h45h4">>},
+                        {{{12,34,92,156}, 6863}, <<"h45h1">>},
+                        {{{12,34,92,158}, 6865}, <<"h45h3">>},
+                        {{{12,34,92,157}, 6864}, <<"h45h2">>}
+                    ],
+                    erline_dht_bucket:find_n_closest_nodes(<<"h45h0">>, 4, State)
+                ),
+                ?assertEqual(
+                    7,
+                    meck:num_calls(erline_dht_helper, get_distance, [<<"h45h0">>, '_'])
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
 find_local_peers_by_info_hash_test_() ->
     State = #state{
         info_hashes = [
