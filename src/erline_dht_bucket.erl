@@ -456,11 +456,10 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         % Handle find_node response
         {ok, find_node, r, Nodes, NewActiveTx} ->
             handle_find_node_response(Ip, Port, Nodes, NewActiveTx, State);
-        % @todo implement. Use 20 length
+        %
         % Handle get_peers query
-        {ok, get_peers, q, _, _} ->
-            ok = erline_dht_helper:notify(EventMgrPid, {get_peers, q, Ip, Port, <<>>}),
-            State;
+        {ok, get_peers, q, {NodeHash, InfoHash}, ReceivedTxId} ->
+            handle_get_peers_query(Ip, Port, NodeHash, InfoHash, ReceivedTxId, State);
         %
         % Handle get_peers response
         {ok, get_peers, r, GetPeersResp, NewActiveTx} ->
@@ -715,6 +714,41 @@ handle_find_node_response(Ip, Port, Nodes, NewActiveTx, State) ->
         {active_txs,   NewActiveTx}
     ],
     update_node(Ip, Port, Params, State).
+
+
+%%  @private
+%%  @doc
+%%  Handle get_peers query from socket.
+%%  @end
+-spec handle_get_peers_query(   % @todo test
+    Ip              :: inet:ip_address(),
+    Port            :: inet:port_number(),
+    NodeHash        :: binary(),
+    InfoHash        :: binary(),
+    ReceivedTxId    :: tx_id(),
+    State           :: #state{}
+) -> NewState :: #state{}.
+
+handle_get_peers_query(Ip, Port, NodeHash, InfoHash, ReceivedTxId, State) ->
+    #state{
+        socket        = Socket,
+        event_mgr_pid = EventMgrPid,
+        my_node_hash  = MyNodeHash,
+        k             = K,
+        info_hashes   = InfoHashes,
+        valid_tokens  = [Token | _]
+    } = State,
+    ok = erline_dht_helper:notify(EventMgrPid, {get_peers, q, Ip, Port, {NodeHash, InfoHash}}),
+    PeersOrNodes = case lists:keysearch(InfoHash, #info_hash.info_hash, InfoHashes) of
+        {value, #info_hash{peers = Peers}} ->
+            erline_dht_helper:encode_peer_info(Peers);
+        error ->
+            Nodes = find_n_closest_nodes(InfoHash, K, State),
+            erline_dht_helper:encode_compact_node_info(Nodes)
+    end,
+    ok = erline_dht_message:respond_get_peers(Ip, Port, Socket, ReceivedTxId, MyNodeHash, Token, PeersOrNodes),
+    ok = add_node(Ip, Port, NodeHash),
+    State.
 
 
 %%  @private

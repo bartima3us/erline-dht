@@ -16,6 +16,7 @@
     send_find_node/6,
     respond_find_node/6,
     send_get_peers/6,
+    respond_get_peers/7,
     error_response/3,
     parse_krpc_response/2
 ]).
@@ -124,168 +125,21 @@ send_get_peers(Ip, Port, Socket, TxId, MyNodeId, InfoHash) ->
 
 
 %%  @doc
-%%  Get `ping` request. http://www.bittorrent.org/beps/bep_0005.html#ping
+%%  Create `get_peers` response and send it.
 %%  @end
--spec ping_request(
-    TxId    :: tx_id(),
-    NodeId  :: binary()
-) -> Request :: binary().
+-spec respond_get_peers(
+    Ip              :: inet:ip_address(),
+    Port            :: inet:port_number(),
+    Socket          :: port(),
+    TxId            :: tx_id(),
+    MyNodeId        :: binary(),
+    Token           :: binary(),
+    NodesOrPeers    :: binary() | [binary()]
+) -> ok.
 
-ping_request(TxId, NodeId) ->
-    Args = [
-        {<<"id">>, NodeId}
-    ],
-    Request = krpc_request(TxId, q, <<"ping">>, Args),
-    erline_dht_bencoding:encode(Request).
-
-
-%%  @doc
-%%  Do response to `ping` request. http://www.bittorrent.org/beps/bep_0005.html#ping
-%%  @end
--spec ping_response(
-    TxId    :: tx_id(),
-    NodeId  :: binary()
-) -> Response :: binary().
-
-ping_response(TxId, NodeId) ->
-    Args = [
-        {<<"id">>, NodeId}
-    ],
-    Response = krpc_request(TxId, r, Args),
-    erline_dht_bencoding:encode(Response).
-
-
-%%  @doc
-%%  Get `find_node` request. http://www.bittorrent.org/beps/bep_0005.html#find-node
-%%  @end
--spec find_node_request(
-    TxId    :: tx_id(),
-    NodeId  :: binary(),
-    Target  :: binary()
-) -> Request :: binary().
-
-find_node_request(TxId, NodeId, Target) ->
-    Args = [
-        {<<"id">>, NodeId},
-        {<<"target">>, Target}
-    ],
-    Request = krpc_request(TxId, q, <<"find_node">>, Args),
-    erline_dht_bencoding:encode(Request).
-
-
-%%  @doc
-%%  Do response to `find_node` request. http://www.bittorrent.org/beps/bep_0005.html#find-node
-%%  @end
--spec find_node_response(
-    TxId    :: tx_id(),
-    NodeId  :: binary(),
-    Nodes   :: binary()
-) -> Response :: binary().
-
-find_node_response(TxId, NodeId, Nodes) ->
-    Args = [
-        {<<"id">>, NodeId},
-        {<<"nodes">>, Nodes}
-    ],
-    Response = krpc_request(TxId, r, Args),
-    erline_dht_bencoding:encode(Response).
-
-
-%%  @doc
-%%  Get `get_peers` request. http://www.bittorrent.org/beps/bep_0005.html#get-peers
-%%  @end
--spec get_peers_request(
-    TxId        :: tx_id(),
-    NodeId      :: binary(),
-    InfoHash    :: binary()
-) -> Request :: binary().
-
-get_peers_request(TxId, NodeId, InfoHash) ->
-    Args = [
-        {<<"id">>, NodeId},
-        {<<"info_hash">>, InfoHash}
-    ],
-    Request = krpc_request(TxId, q, <<"get_peers">>, Args),
-    erline_dht_bencoding:encode(Request).
-
-
-%%  @doc
-%%  Do response to `get_peers` request. http://www.bittorrent.org/beps/bep_0005.html#get-peers
-%%  @end
--spec get_peers_response
-    (
-        TxId    :: tx_id(),
-        NodeId  :: binary(),
-        Token   :: binary(),
-        Peers   :: [binary()]
-    ) -> Response :: binary();
-    (
-        TxId    :: tx_id(),
-        NodeId  :: binary(),
-        Token   :: binary(),
-        Nodes   :: binary()
-    ) -> Response :: binary().
-
-get_peers_response(TxId, NodeId, Token, Peers) when is_list(Peers) ->
-    Args = [
-        {<<"id">>, NodeId},
-        {<<"token">>, Token},
-        {<<"values">>, {list, Peers}}
-    ],
-    Response = krpc_request(TxId, r, Args),
-    erline_dht_bencoding:encode(Response);
-
-get_peers_response(TxId, NodeId, Token, Nodes) when is_binary(Nodes) ->
-    Args = [
-        {<<"id">>, NodeId},
-        {<<"token">>, Token},
-        {<<"nodes">>, Nodes}
-    ],
-    Response = krpc_request(TxId, r, Args),
-    erline_dht_bencoding:encode(Response).
-
-
-%%  @doc
-%%  Get `announce_peer` request. http://www.bittorrent.org/beps/bep_0005.html#announce-peer
-%%  @end
--spec announce_peer_request(
-    TxId        :: tx_id(),
-    NodeId      :: binary(),
-    ImpliedPort :: 0 | 1,
-    InfoHash    :: binary(),
-    Port        :: inet:port_number(),
-    Token       :: binary()
-) -> Request :: binary().
-
-announce_peer_request(TxId, NodeId, ImpliedPort, InfoHash, Port, Token) when
-    ImpliedPort =:= 0;
-    ImpliedPort =:= 1
-    ->
-    Args = [
-        {<<"id">>, NodeId},
-        {<<"implied_port">>, ImpliedPort},
-        {<<"info_hash">>, InfoHash},
-        {<<"port">>, Port},
-        {<<"token">>, Token}
-    ],
-    Request = krpc_request(TxId, q, <<"announce_peer">>, Args),
-    erline_dht_bencoding:encode(Request).
-
-
-%%  @doc
-%%  Do response to `announce_peer` request. http://www.bittorrent.org/beps/bep_0005.html#announce-peer
-%%  @end
--spec announce_peer_response(
-    TxId    :: tx_id(),
-    NodeId  :: binary()
-) -> Response :: binary().
-
-announce_peer_response(TxId, NodeId) ->
-    Args = [
-        {<<"id">>, NodeId}
-    ],
-    Response = krpc_request(TxId, r, Args),
-    erline_dht_bencoding:encode(Response).
+respond_get_peers(Ip, Port, Socket, TxId, MyNodeId, Token, NodesOrPeers) ->
+    Payload = get_peers_response(TxId, MyNodeId, Token, NodesOrPeers),
+    ok = socket_send(Socket, Ip, Port, Payload).
 
 
 %%  @doc
@@ -341,10 +195,14 @@ parse_krpc_response(Response, ActiveTxs) ->
                                 {{ok, <<"ping">>}, {ok, {dict, Args}}} ->
                                     {ok, Hash} = dict:find(<<"id">>, Args),
                                     {ok, ping, q, Hash, TxId};
-                                {{ok, <<"ping">>}, {ok, {dict, Args}}} ->
+                                {{ok, <<"find_node">>}, {ok, {dict, Args}}} ->
+                                    {ok, Hash} = dict:find(<<"id">>, Args),
                                     {ok, Target} = dict:find(<<"target">>, Args),
-                                    {ok, Hash} = dict:find(<<"hash">>, Args),
                                     {ok, find_node, q, {Hash, Target}, TxId};
+                                {{ok, <<"get_peers">>}, {ok, {dict, Args}}} ->
+                                    {ok, Hash} = dict:find(<<"id">>, Args),
+                                    {ok, InfoHash} = dict:find(<<"get_peers">>, Args),
+                                    {ok, find_node, q, {Hash, InfoHash}, TxId};
                                 % @todo implement requests handling
                                 {{ok, <<"announce_peer">>}, {ok, {dict, Args}}} ->
                                     {ok, announce_peer, q, <<>>, TxId};
@@ -381,6 +239,178 @@ parse_krpc_response(Response, ActiveTxs) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+%%  @private
+%%  @doc
+%%  Get `ping` request. http://www.bittorrent.org/beps/bep_0005.html#ping
+%%  @end
+-spec ping_request(
+    TxId    :: tx_id(),
+    NodeId  :: binary()
+) -> Request :: binary().
+
+ping_request(TxId, NodeId) ->
+    Args = [
+        {<<"id">>, NodeId}
+    ],
+    Request = krpc_request(TxId, q, <<"ping">>, Args),
+    erline_dht_bencoding:encode(Request).
+
+
+%%  @private
+%%  @doc
+%%  Do response to `ping` request. http://www.bittorrent.org/beps/bep_0005.html#ping
+%%  @end
+-spec ping_response(
+    TxId    :: tx_id(),
+    NodeId  :: binary()
+) -> Response :: binary().
+
+ping_response(TxId, NodeId) ->
+    Args = [
+        {<<"id">>, NodeId}
+    ],
+    Response = krpc_request(TxId, r, Args),
+    erline_dht_bencoding:encode(Response).
+
+
+%%  @private
+%%  @doc
+%%  Get `find_node` request. http://www.bittorrent.org/beps/bep_0005.html#find-node
+%%  @end
+-spec find_node_request(
+    TxId    :: tx_id(),
+    NodeId  :: binary(),
+    Target  :: binary()
+) -> Request :: binary().
+
+find_node_request(TxId, NodeId, Target) ->
+    Args = [
+        {<<"id">>, NodeId},
+        {<<"target">>, Target}
+    ],
+    Request = krpc_request(TxId, q, <<"find_node">>, Args),
+    erline_dht_bencoding:encode(Request).
+
+
+%%  @private
+%%  @doc
+%%  Do response to `find_node` request. http://www.bittorrent.org/beps/bep_0005.html#find-node
+%%  @end
+-spec find_node_response(
+    TxId    :: tx_id(),
+    NodeId  :: binary(),
+    Nodes   :: binary()
+) -> Response :: binary().
+
+find_node_response(TxId, NodeId, Nodes) ->
+    Args = [
+        {<<"id">>, NodeId},
+        {<<"nodes">>, Nodes}
+    ],
+    Response = krpc_request(TxId, r, Args),
+    erline_dht_bencoding:encode(Response).
+
+
+%%  @private
+%%  @doc
+%%  Get `get_peers` request. http://www.bittorrent.org/beps/bep_0005.html#get-peers
+%%  @end
+-spec get_peers_request(
+    TxId        :: tx_id(),
+    NodeId      :: binary(),
+    InfoHash    :: binary()
+) -> Request :: binary().
+
+get_peers_request(TxId, NodeId, InfoHash) ->
+    Args = [
+        {<<"id">>, NodeId},
+        {<<"info_hash">>, InfoHash}
+    ],
+    Request = krpc_request(TxId, q, <<"get_peers">>, Args),
+    erline_dht_bencoding:encode(Request).
+
+
+%%  @private
+%%  @doc
+%%  Do response to `get_peers` request. http://www.bittorrent.org/beps/bep_0005.html#get-peers
+%%  @end
+-spec get_peers_response
+    (
+        TxId    :: tx_id(),
+        NodeId  :: binary(),
+        Token   :: binary(),
+        Peers   :: [binary()]
+    ) -> Response :: binary();
+    (
+        TxId    :: tx_id(),
+        NodeId  :: binary(),
+        Token   :: binary(),
+        Nodes   :: binary()
+    ) -> Response :: binary().
+
+get_peers_response(TxId, NodeId, Token, Peers) when is_list(Peers) ->
+    Args = [
+        {<<"id">>, NodeId},
+        {<<"token">>, Token},
+        {<<"values">>, {list, Peers}}
+    ],
+    Response = krpc_request(TxId, r, Args),
+    erline_dht_bencoding:encode(Response);
+
+get_peers_response(TxId, NodeId, Token, Nodes) when is_binary(Nodes) ->
+    Args = [
+        {<<"id">>, NodeId},
+        {<<"token">>, Token},
+        {<<"nodes">>, Nodes}
+    ],
+    Response = krpc_request(TxId, r, Args),
+    erline_dht_bencoding:encode(Response).
+
+
+%%  @private
+%%  @doc
+%%  Get `announce_peer` request. http://www.bittorrent.org/beps/bep_0005.html#announce-peer
+%%  @end
+-spec announce_peer_request(
+    TxId        :: tx_id(),
+    NodeId      :: binary(),
+    ImpliedPort :: 0 | 1,
+    InfoHash    :: binary(),
+    Port        :: inet:port_number(),
+    Token       :: binary()
+) -> Request :: binary().
+
+announce_peer_request(TxId, NodeId, ImpliedPort, InfoHash, Port, Token) when
+    ImpliedPort =:= 0;
+    ImpliedPort =:= 1
+    ->
+    Args = [
+        {<<"id">>, NodeId},
+        {<<"implied_port">>, ImpliedPort},
+        {<<"info_hash">>, InfoHash},
+        {<<"port">>, Port},
+        {<<"token">>, Token}
+    ],
+    Request = krpc_request(TxId, q, <<"announce_peer">>, Args),
+    erline_dht_bencoding:encode(Request).
+
+
+%%  @private
+%%  @doc
+%%  Do response to `announce_peer` request. http://www.bittorrent.org/beps/bep_0005.html#announce-peer
+%%  @end
+-spec announce_peer_response(
+    TxId    :: tx_id(),
+    NodeId  :: binary()
+) -> Response :: binary().
+
+announce_peer_response(TxId, NodeId) ->
+    Args = [
+        {<<"id">>, NodeId}
+    ],
+    Response = krpc_request(TxId, r, Args),
+    erline_dht_bencoding:encode(Response).
 
 
 %%  @private
