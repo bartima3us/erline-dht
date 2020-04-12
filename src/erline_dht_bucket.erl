@@ -1234,12 +1234,10 @@ clear_peers_searches(#state{db_mod = DbMod}) ->
 
 update_tokens(State = #state{valid_tokens = CurrValidTokens}) ->
     NewToken = erline_dht_helper:generate_random_binary(20),
-    case erlang:length(CurrValidTokens) of
-        Num when Num < 2 ->
-            State#state{valid_tokens = CurrValidTokens ++ [NewToken]};
-        Num ->
-            [_ | CurrValidTokens0] = CurrValidTokens,
-            State#state{valid_tokens = CurrValidTokens0 ++ [NewToken]}
+    case CurrValidTokens of
+        []              -> State#state{valid_tokens = [NewToken]};
+        [KeptToken]     -> State#state{valid_tokens = [NewToken, KeptToken]};
+        [KeptToken, _]  -> State#state{valid_tokens = [NewToken, KeptToken]}
     end.
 
 

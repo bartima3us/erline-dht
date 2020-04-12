@@ -1435,7 +1435,7 @@ update_tokens_test_() ->
         {"Update tokens. 1 valid token.",
             fun() ->
                 ?assertEqual(
-                    #state{valid_tokens = [<<"t0k3n1">>, <<"t0k3n2">>]},
+                    #state{valid_tokens = [<<"t0k3n2">>, <<"t0k3n1">>]},
                     erline_dht_bucket:update_tokens(#state{valid_tokens = [<<"t0k3n1">>]})
                 ),
                 ?assertEqual(
@@ -1448,8 +1448,8 @@ update_tokens_test_() ->
         {"Update tokens. 2 valid token.",
             fun() ->
                 ?assertEqual(
-                    #state{valid_tokens = [<<"t0k3n2">>, <<"t0k3n3">>]},
-                    erline_dht_bucket:update_tokens(#state{valid_tokens = [<<"t0k3n1">>, <<"t0k3n2">>]})
+                    #state{valid_tokens = [<<"t0k3n3">>, <<"t0k3n2">>]},
+                    erline_dht_bucket:update_tokens(#state{valid_tokens = [<<"t0k3n2">>, <<"t0k3n1">>]})
                 ),
                 ?assertEqual(
                     1,
