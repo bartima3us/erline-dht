@@ -29,7 +29,6 @@
 -record(node, {
     ip_port                         :: {inet:ip_address(), inet:port_number()},
     hash                            :: binary(),
-    token_sent                      :: binary(),
     token_received                  :: binary(),
     last_changed                    :: calendar:datetime(),
     tx_id           = <<0,0>>       :: tx_id(),
@@ -58,9 +57,11 @@
     info_hashes                 = []    :: [#info_hash{}],
     get_peers_searches_timer            :: reference(),
     clear_not_assigned_nodes_timer      :: reference(),
+    update_tokens_timer                 :: reference(),
     db_mod                              :: module(),
     event_mgr_pid                       :: pid(),
-    not_assigned_clearing_threshold     :: pos_integer()
+    not_assigned_clearing_threshold     :: pos_integer(),
+    valid_tokens                = []    :: [binary()]
 }).
 
 -define(NODES_LIST, [
@@ -795,7 +796,6 @@ update_tx_id_test_() ->
 update_node_test_() ->
     Params = [
         {hash, <<"n3w_h45h">>},
-        {token_sent, <<"t0k3n_53nt">>},
         {token_received, <<"t0k3n_r3c31v3d">>},
         {last_changed, {{2020,7,1},{12,0,0}}},
         {active_txs, [{find_node, <<0,2>>}, {ping, <<0,3>>}]},
@@ -830,7 +830,6 @@ update_node_test_() ->
     },
     UpdatedNode = #node{
         ip_port         = {{12,34,92,154}, 6861},
-        token_sent      = <<"t0k3n_53nt">>,
         token_received  = <<"t0k3n_r3c31v3d">>,
         hash            = <<"n3w_h45h">>,
         last_changed    = {{2020,7,1},{12,0,0}},
@@ -1402,6 +1401,61 @@ clear_peers_searches_test_() ->
                     3,
                     meck:num_calls(erline_dht_helper, local_time, [])
                 )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
+update_tokens_test_() ->
+    {setup,
+        fun() ->
+            ok = meck:new(erline_dht_helper),
+            ok = meck:expect(erline_dht_helper, generate_random_binary, [20], meck:seq([<<"t0k3n1">>, <<"t0k3n2">>, <<"t0k3n3">>]))
+        end,
+        fun(_) ->
+            true = meck:validate(erline_dht_helper),
+            ok = meck:unload(erline_dht_helper)
+        end,
+        [{"Update tokens. 0 valid tokens.",
+            fun() ->
+                ?assertEqual(
+                    #state{valid_tokens = [<<"t0k3n1">>]},
+                    erline_dht_bucket:update_tokens(#state{})
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, generate_random_binary, [20])
+                ),
+                ok = meck:reset(erline_dht_helper)
+            end
+        },
+        {"Update tokens. 1 valid token.",
+            fun() ->
+                ?assertEqual(
+                    #state{valid_tokens = [<<"t0k3n1">>, <<"t0k3n2">>]},
+                    erline_dht_bucket:update_tokens(#state{valid_tokens = [<<"t0k3n1">>]})
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, generate_random_binary, [20])
+                ),
+                ok = meck:reset(erline_dht_helper)
+            end
+        },
+        {"Update tokens. 2 valid token.",
+            fun() ->
+                ?assertEqual(
+                    #state{valid_tokens = [<<"t0k3n2">>, <<"t0k3n3">>]},
+                    erline_dht_bucket:update_tokens(#state{valid_tokens = [<<"t0k3n1">>, <<"t0k3n2">>]})
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, generate_random_binary, [20])
+                ),
+                ok = meck:reset(erline_dht_helper)
             end
         }]
     }.

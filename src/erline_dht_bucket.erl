@@ -55,6 +55,7 @@
     find_local_peers_by_info_hash/2,
     add_peer/4,
     clear_peers_searches/1,
+    update_tokens/1,
     update_bucket_nodes_status/2,
     init_not_active_nodes_replacement/2,
     clear_not_assigned_nodes/1,
@@ -70,6 +71,7 @@
 -define(BUCKET_CHECK_HIGH_TIME, 180000). % 3 min
 -define(GET_PEERS_SEARCH_CHECK_TIME, 60000). % 1 min
 -define(CLEAR_NOT_ASSIGNED_NODES_TIME, 60000). % 1 min
+-define(UPDATE_TOKENS_TIME, 300000). % 5 min
 -define(NOT_ACTIVE_NOT_ASSIGNED_NODES_TTL, 90). % 90 s
 -define(ACTIVE_NOT_ASSIGNED_NODES_TTL, 300). % 5 min
 -define(ACTIVE_TTL, 840). % 14 min
@@ -97,9 +99,11 @@
     info_hashes                 = []    :: [#info_hash{}],  % @todo persist?
     get_peers_searches_timer            :: reference(),
     clear_not_assigned_nodes_timer      :: reference(),
+    update_tokens_timer                 :: reference(),
     db_mod                              :: module(),
     event_mgr_pid                       :: pid(),
-    not_assigned_clearing_threshold     :: pos_integer() % Not assigned nodes
+    not_assigned_clearing_threshold     :: pos_integer(), % Not assigned nodes
+    valid_tokens                = []    :: [binary()]
 }).
 
 %%%===================================================================
@@ -245,9 +249,11 @@ init([]) ->
         buckets                         = lists:reverse(Buckets),
         get_peers_searches_timer        = schedule_get_peers_searches_check(),
         clear_not_assigned_nodes_timer  = ClearNotAssignedRef,
+        update_tokens_timer             = schedule_update_tokens(),
         db_mod                          = DbMod,
         event_mgr_pid                   = EventMgrPid,
-        not_assigned_clearing_threshold = K * 100
+        not_assigned_clearing_threshold = K * 100,
+        valid_tokens                    = [erline_dht_helper:generate_random_binary(20)]
     },
     % Bootstrap
     AddBootstrapNodeFun = fun
@@ -450,7 +456,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         % Handle find_node response
         {ok, find_node, r, Nodes, NewActiveTx} ->
             handle_find_node_response(Ip, Port, Nodes, NewActiveTx, State);
-        % @todo implement. Most common token lengths: 4, 8, 20
+        % @todo implement. Use 20 length
         % Handle get_peers query
         {ok, get_peers, q, _, _} ->
             ok = erline_dht_helper:notify(EventMgrPid, {get_peers, q, Ip, Port, <<>>}),
@@ -539,7 +545,14 @@ handle_info(clear_not_assigned_nodes, State = #state{my_node_hash = MyNodeHash})
         end)
     end, lists:seq(0, erlang:bit_size(MyNodeHash))),
     NewState = State#state{clear_not_assigned_nodes_timer = schedule_clear_not_assigned_nodes()},
-    {noreply, NewState}.
+    {noreply, NewState};
+
+%
+%
+handle_info(update_tokens, State = #state{}) ->
+    NewState0 = update_tokens(State),
+    NewState1 = NewState0#state{update_tokens_timer = schedule_update_tokens()},
+    {noreply, NewState1}.
 
 
 %%--------------------------------------------------------------------
@@ -911,7 +924,6 @@ update_tx_id(Node = #node{tx_id = LastTxIdBin}) ->
     Ip      :: inet:ip_address(),
     Port    :: inet:port_number(),
     Params  :: [{hash, Hash :: binary()} |
-                {token_sent, TokenSent :: binary()} |
                 {token_received, TokenReceived :: binary()} |
                 {last_changed, LastChanged :: calendar:datetime()} |
                 {active_txs, [ActiveTx :: active_tx()]} |
@@ -939,8 +951,6 @@ update_node(Bucket, Node = #node{ip_port = {Ip, Port}}, Params, State = #state{}
                 {ok, Distance}   -> AccNode#node{hash = Hash, distance = Distance};
                 {error, _Reason} -> AccNode#node{hash = Hash}
             end;
-        ({token_sent, TokenSent}, AccNode) ->
-            AccNode#node{token_sent = TokenSent};
         ({token_received, TokenReceived}, AccNode) ->
             AccNode#node{token_received = TokenReceived};
         ({last_changed, LastChanged}, AccNode) ->
@@ -1074,6 +1084,16 @@ schedule_clear_not_assigned_nodes() ->
 
 %%  @private
 %%  @doc
+%%  Schedule next `schedule_update_tokens` message.
+%%  @end
+-spec schedule_update_tokens() -> TimerRef :: reference().
+
+schedule_update_tokens() ->
+    erlang:send_after(?UPDATE_TOKENS_TIME, self(), update_tokens).
+
+
+%%  @private
+%%  @doc
 %%  Move oldest not active node (if exists) from bucket to not assigned nodes if bucket is full.
 %%  Return the fact - whether bucket has available space now or not.
 %%  @end
@@ -1202,6 +1222,25 @@ clear_peers_searches(#state{db_mod = DbMod}) ->
                 true = DbMod:delete_requested_nodes(InfoHash)
         end
     end, DbMod:get_all_get_peers_searches()).
+
+
+%%  @private
+%%  @doc
+%%  Update valid tokens.
+%%  @end
+-spec update_tokens(
+    State :: #state{}
+) -> NewState :: #state{}.
+
+update_tokens(State = #state{valid_tokens = CurrValidTokens}) ->
+    NewToken = erline_dht_helper:generate_random_binary(20),
+    case erlang:length(CurrValidTokens) of
+        Num when Num < 2 ->
+            State#state{valid_tokens = CurrValidTokens ++ [NewToken]};
+        Num ->
+            [_ | CurrValidTokens0] = CurrValidTokens,
+            State#state{valid_tokens = CurrValidTokens0 ++ [NewToken]}
+    end.
 
 
 %%  @private

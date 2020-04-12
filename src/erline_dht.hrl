@@ -19,7 +19,6 @@
 -record(node, {
     ip_port                         :: {inet:ip_address(), inet:port_number()},
     hash                            :: binary(),
-    token_sent                      :: binary(), % My token sent to this node
     token_received                  :: binary(), % Token received from this node
     last_changed                    :: calendar:datetime(),
     tx_id           = <<0,0>>       :: tx_id(),
