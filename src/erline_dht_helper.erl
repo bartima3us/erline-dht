@@ -14,6 +14,7 @@
 -export([
     get_distance/2,
     get_hash_of_distance/2,
+    encode_compact_node_info/1,
     decode_compact_node_info/1,
     decode_peer_info/1,
     datetime_diff/2,
@@ -97,7 +98,21 @@ get_hash_of_distance(Hash, Distance) ->
 
 
 %%  @doc
-%%  Parse compact node info binary.
+%%  Encode compact node info list to binary.
+%%  @end
+-spec encode_compact_node_info(
+    Nodes :: [{IpPort :: {inet:ip_address(), inet:port_number()}, NodeHash :: binary()}]
+) -> [ParsedCompactNodeInfo :: parsed_compact_node_info()].
+
+encode_compact_node_info(Nodes) ->
+    lists:foldl(fun ({{Ip, Port}, Hash}, AccResult) ->
+        {Oct1, Oct2, Oct3, Oct4} = Ip,
+        <<AccResult/binary, Hash/binary, Oct1:8, Oct2:8, Oct3:8, Oct4:8, Port:16>>
+    end, <<>>, Nodes).
+
+
+%%  @doc
+%%  Decode compact node info binary.
 %%  @end
 -spec decode_compact_node_info(
     Info :: binary()
@@ -120,7 +135,7 @@ decode_compact_node_info(_Other, Result) ->
 
 
 %%  @doc
-%%  Parse peer info list of binaries.
+%%  Decode peer info list of binaries.
 %%  @end
 -spec decode_peer_info(
     PeerInfoList :: [binary()]
