@@ -903,6 +903,7 @@ update_node(Bucket, Node = #node{ip_port = {Ip, Port}}, Params, State = #state{}
     UpdatedNode = lists:foldl(fun
         ({hash, Hash}, AccNode) ->
             case erline_dht_helper:get_distance(MyNodeHash, Hash) of
+                % @todo assign automatically to Distance bucket
                 {ok, Distance}   -> AccNode#node{hash = Hash, distance = Distance};
                 {error, _Reason} -> AccNode#node{hash = Hash}
             end;
@@ -933,11 +934,11 @@ update_node(Bucket, Node = #node{ip_port = {Ip, Port}}, Params, State = #state{}
         CurrBucket = #bucket{distance = CurrDist, nodes = Nodes} ->
             % Check for `assign` param
             NewBuckets0 = case lists:keysearch(assign, 1, Params) of
-                % Assign update node to the new bucket if there is assign param
+                % Assign updated node to the new bucket if there is assign param
                 {value, {assign, NewDist}} ->
                     CurrBucketUpdated = CurrBucket#bucket{nodes = lists:keydelete({Ip, Port}, #node.ip_port, Nodes)},
                     lists:keyreplace(CurrDist, #bucket.distance, AddNodeToBucketFun(NewDist), CurrBucketUpdated);
-                % Just put update node to the old bucket
+                % Just put updated node to the old bucket
                 false ->
                     NewNodes0 = lists:keyreplace({Ip, Port}, #node.ip_port, Nodes, UpdatedNode),
                     lists:keyreplace(CurrDist, #bucket.distance, Buckets, Bucket#bucket{nodes = NewNodes0})

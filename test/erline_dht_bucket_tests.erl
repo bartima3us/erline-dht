@@ -719,6 +719,250 @@ update_tx_id_test_() ->
 %%
 %%
 %%
+update_node_test_() ->
+    Params = [
+        {hash, <<"n3w_h45h">>},
+        {token_sent, <<"t0k3n_53nt">>},
+        {token_received, <<"t0k3n_r3c31v3d">>},
+        {last_changed, {{2020,7,1},{12,0,0}}},
+        {active_txs, [{find_node, <<0,2>>}, {ping, <<0,3>>}]},
+        tx_id,
+        {status, active}
+    ],
+    State = #state{
+        my_node_hash = <<"my_h45h">>,
+        db_mod       = erline_dht_db_ets,
+        buckets      = [
+            Bucket = #bucket{
+                distance = 1,
+                nodes    = [
+                    Node = #node{
+                        ip_port     = {{12,34,92,154}, 6861},
+                        hash        = <<"0ld_h45h">>,
+                        active_txs  = [{ping, <<0,1>>}],
+                        tx_id       = <<0,3>>,
+                        distance    = 1
+                    },
+                    #node{ip_port = {{12,34,92,155}, 6862}}
+                ]
+            },
+            #bucket{
+                distance = 2,
+                nodes    = [
+                    #node{ip_port = {{12,34,92,156}, 6863}},
+                    #node{ip_port = {{12,34,92,158}, 6865}}
+                ]
+            }
+        ]
+    },
+    UpdatedNode = #node{
+        ip_port         = {{12,34,92,154}, 6861},
+        token_sent      = <<"t0k3n_53nt">>,
+        token_received  = <<"t0k3n_r3c31v3d">>,
+        hash            = <<"n3w_h45h">>,
+        last_changed    = {{2020,7,1},{12,0,0}},
+        active_txs      = [{find_node, <<0,2>>}, {ping, <<0,3>>}],
+        tx_id           = <<0,4>>,
+        status          = active,
+        distance        = 2
+    },
+    {setup,
+        fun() ->
+            ok = meck:new([erline_dht_helper, erline_dht_db_ets]),
+            ok = meck:expect(erline_dht_helper, get_distance, [<<"my_h45h">>, <<"n3w_h45h">>], {ok, 2}),
+            ok = meck:expect(erline_dht_db_ets, insert_to_not_assigned_nodes, [UpdatedNode], true),
+            ok = meck:expect(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, [{12,34,92,154}, 6861], true)
+        end,
+        fun(_) ->
+            true = meck:validate([erline_dht_helper, erline_dht_db_ets]),
+            ok = meck:unload([erline_dht_helper, erline_dht_db_ets])
+        end,
+        [{"Update node in a bucket.",
+            fun() ->
+                ?assertEqual(
+                    #state{
+                        my_node_hash = <<"my_h45h">>,
+                        db_mod       = erline_dht_db_ets,
+                        buckets      = [
+                            #bucket{
+                                distance = 1,
+                                nodes    = [
+                                    UpdatedNode,
+                                    #node{ip_port = {{12,34,92,155}, 6862}}
+                                ]
+                            },
+                            #bucket{
+                                distance = 2,
+                                nodes    = [
+                                    #node{ip_port = {{12,34,92,156}, 6863}},
+                                    #node{ip_port = {{12,34,92,158}, 6865}}
+                                ]
+                            }
+                        ]
+                    },
+                    erline_dht_bucket:update_node(Bucket, Node, Params, State)
+                )
+            end
+        },
+        {"Update node in a not assigned nodes list.",
+            fun() ->
+                ?assertEqual(
+                    State,
+                    erline_dht_bucket:update_node(false, Node, Params, State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, [UpdatedNode])
+                ),
+                ok = meck:reset(erline_dht_db_ets)
+            end
+        },
+        {"Update node in a bucket and assign to another bucket.",
+            fun() ->
+                ?assertEqual(
+                    #state{
+                        my_node_hash = <<"my_h45h">>,
+                        db_mod       = erline_dht_db_ets,
+                        buckets      = [
+                            #bucket{
+                                distance = 1,
+                                nodes    = [
+                                    #node{ip_port = {{12,34,92,155}, 6862}}
+                                ]
+                            },
+                            #bucket{
+                                distance = 2,
+                                nodes    = [
+                                    UpdatedNode,
+                                    #node{ip_port = {{12,34,92,156}, 6863}},
+                                    #node{ip_port = {{12,34,92,158}, 6865}}
+                                ]
+                            }
+                        ]
+                    },
+                    erline_dht_bucket:update_node(Bucket, Node, Params ++ [{assign, 2}], State)
+                )
+            end
+        },
+        {"Update node in a not assigned nodes list and assign to a bucket.",
+            fun() ->
+                ?assertEqual(
+                    #state{
+                        my_node_hash = <<"my_h45h">>,
+                        db_mod       = erline_dht_db_ets,
+                        buckets      = [
+                            #bucket{
+                                distance = 1,
+                                nodes    = [
+                                    #node{
+                                        ip_port     = {{12,34,92,154}, 6861},
+                                        hash        = <<"0ld_h45h">>,
+                                        active_txs  = [{ping, <<0,1>>}],
+                                        tx_id       = <<0,3>>,
+                                        distance    = 1
+                                    },
+                                    #node{ip_port = {{12,34,92,155}, 6862}}
+                                ]
+                            },
+                            #bucket{
+                                distance = 2,
+                                nodes    = [
+                                    UpdatedNode,
+                                    #node{ip_port = {{12,34,92,156}, 6863}},
+                                    #node{ip_port = {{12,34,92,158}, 6865}}
+                                ]
+                            }
+                        ]
+                    },
+                    erline_dht_bucket:update_node(false, Node, Params ++ [{assign, 2}], State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, [{12,34,92,154}, 6861])
+                ),
+                ok = meck:reset(erline_dht_db_ets)
+            end
+        },
+        {"Update node in a bucket and unassign it.",
+            fun() ->
+                ?assertEqual(
+                    #state{
+                        my_node_hash = <<"my_h45h">>,
+                        db_mod       = erline_dht_db_ets,
+                        buckets      = [
+                            #bucket{
+                                distance = 1,
+                                nodes    = [
+                                    #node{ip_port = {{12,34,92,155}, 6862}}
+                                ]
+                            },
+                            #bucket{
+                                distance = 2,
+                                nodes    = [
+                                    #node{ip_port = {{12,34,92,156}, 6863}},
+                                    #node{ip_port = {{12,34,92,158}, 6865}}
+                                ]
+                            }
+                        ]
+                    },
+                    erline_dht_bucket:update_node(Bucket, Node, Params ++ [unassign], State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, [UpdatedNode])
+                ),
+                ok = meck:reset(erline_dht_db_ets)
+            end
+        },
+        {"Update node in a bucket and unassign it.",
+            fun() ->
+                ?assertEqual(
+                    #state{
+                        my_node_hash = <<"my_h45h">>,
+                        db_mod       = erline_dht_db_ets,
+                        buckets      = [
+                            #bucket{
+                                distance = 1,
+                                nodes    = [
+                                    #node{ip_port = {{12,34,92,155}, 6862}}
+                                ]
+                            },
+                            #bucket{
+                                distance = 2,
+                                nodes    = [
+                                    #node{ip_port = {{12,34,92,156}, 6863}},
+                                    #node{ip_port = {{12,34,92,158}, 6865}}
+                                ]
+                            }
+                        ]
+                    },
+                    erline_dht_bucket:update_node(Bucket, Node, Params ++ [unassign], State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, [UpdatedNode])
+                ),
+                ok = meck:reset(erline_dht_db_ets)
+            end
+        },
+        {"Update node in a not assigned nodes list and try to unassign it (no success).",
+            fun() ->
+                ?assertEqual(
+                    State,
+                    erline_dht_bucket:update_node(false, Node, Params ++ [unassign], State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, [UpdatedNode])
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
 update_bucket_test_() ->
     State = #state{
         buckets = [
