@@ -208,7 +208,7 @@ get_buckets_filling() ->
 init([]) ->
     % Get my node hash
     MyNodeHash = case erline_dht:get_env(node_hash, 20) of
-        HashOpt when is_integer(HashOpt) -> crypto:strong_rand_bytes(HashOpt); % @todo use algorithm: http://www.bittorrent.org/beps/bep_0020.html
+        HashOpt when is_integer(HashOpt) -> erline_dht_helper:generate_random_binary(HashOpt); % @todo use algorithm: http://www.bittorrent.org/beps/bep_0020.html
         HashOpt when is_binary(HashOpt)  -> HashOpt
     end,
     % Open UDP socket
@@ -450,8 +450,8 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         % Handle find_node response
         {ok, find_node, r, Nodes, NewActiveTx} ->
             handle_find_node_response(Ip, Port, Nodes, NewActiveTx, State);
-        % @todo implement
-        % Handle find_node query
+        % @todo implement. Most common token lengths: 4, 8, 20
+        % Handle get_peers query
         {ok, get_peers, q, _, _} ->
             ok = erline_dht_helper:notify(EventMgrPid, {get_peers, q, Ip, Port, <<>>}),
             State;
@@ -460,6 +460,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         {ok, get_peers, r, GetPeersResp, NewActiveTx} ->
             handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, State);
         % @todo implement
+        % @todo if token is bad, respond with 203 Protocol Error, such as a malformed packet, invalid arguments, or bad token
         % Handle announce_peer query
         {ok, announce_peer, q, _Data, _GotTxId} ->
             ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, q, Ip, Port, <<>>}),
@@ -487,6 +488,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         {error, {non_existing_tx, _TxId}} ->
             State;
         {error, {bad_query, _BadQuery}} ->
+            % @todo respond with 204 Method Unknown
             State;
         {error, {bad_response, _BadResponse}} ->
             State
@@ -518,6 +520,7 @@ handle_info({bucket_ping, Distance}, State = #state{buckets = Buckets}) ->
 %
 %
 handle_info(get_peers_searches_check, State = #state{}) ->
+    % @todo After the search is exhausted, the client then inserts the peer contact information for itself onto the responding nodes with IDs closest to the infohash of the torrent.
     ok = clear_peers_searches(State),
     NewState = State#state{get_peers_searches_timer = schedule_get_peers_searches_check()},
     {noreply, NewState};
@@ -1102,7 +1105,7 @@ find_n_closest_nodes(Hash, N, #state{buckets = Buckets}) ->
             {error, _Reason} -> AccNodes
         end
     end, [], AllNodes),
-    [{IpPort, Hash} || {_, IpPort, Hash} <- lists:sublist(lists:usort(NodesWithDist), N)].
+    [{IpPort0, Hash0} || {_, IpPort0, Hash0} <- lists:sublist(lists:usort(NodesWithDist), N)].
 
 
 %%  @private

@@ -212,7 +212,7 @@ get_peers_response(TxId, NodeId, Token, Peers) when is_list(Peers) ->
     Response = krpc_request(TxId, r, Args),
     erline_dht_bencoding:encode(Response);
 
-get_peers_response(TxId, NodeId, Token, Nodes) ->
+get_peers_response(TxId, NodeId, Token, Nodes) when is_binary(Nodes) ->
     Args = [
         {<<"id">>, NodeId},
         {<<"token">>, Token},

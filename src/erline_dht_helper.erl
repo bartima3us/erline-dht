@@ -16,11 +16,13 @@
     get_hash_of_distance/2,
     encode_compact_node_info/1,
     decode_compact_node_info/1,
+    encode_peer_info/1,
     decode_peer_info/1,
     datetime_diff/2,
     change_datetime/2,
     notify/2,
-    local_time/0
+    local_time/0,
+    generate_random_binary/1
 ]).
 
 
@@ -102,7 +104,7 @@ get_hash_of_distance(Hash, Distance) ->
 %%  @end
 -spec encode_compact_node_info(
     Nodes :: [{IpPort :: {inet:ip_address(), inet:port_number()}, NodeHash :: binary()}]
-) -> [ParsedCompactNodeInfo :: parsed_compact_node_info()].
+) -> CompactNodeInfo :: binary().
 
 encode_compact_node_info(Nodes) ->
     lists:foldl(fun ({{Ip, Port}, Hash}, AccResult) ->
@@ -132,6 +134,20 @@ decode_compact_node_info(<<Hash:20/binary, Ip:4/binary, Port:2/binary, Rest/bina
 
 decode_compact_node_info(_Other, Result) ->
     Result.
+
+
+%%  @doc
+%%  Encode peer info list to list of binaries.
+%%  @end
+-spec encode_peer_info(
+    Peers :: [IpPort :: {inet:ip_address(), inet:port_number()}]
+) -> [PeerInfo :: binary()].
+
+encode_peer_info(Peers) ->
+    lists:map(fun ({Ip, Port}) ->
+        {Oct1, Oct2, Oct3, Oct4} = Ip,
+        <<Oct1:8, Oct2:8, Oct3:8, Oct4:8, Port:16>>
+    end, Peers).
 
 
 %%  @doc
@@ -200,5 +216,16 @@ notify(Ref, Event) ->
 
 local_time() ->
     calendar:local_time().
+
+
+%%  @doc
+%%  Generate random binary of the specified length.
+%%  @end
+-spec generate_random_binary(
+    Length :: non_neg_integer()
+) -> binary().
+
+generate_random_binary(Length) ->
+    crypto:strong_rand_bytes(Length).
 
 

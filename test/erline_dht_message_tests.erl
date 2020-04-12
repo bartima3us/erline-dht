@@ -11,6 +11,9 @@
 -include_lib("eunit/include/eunit.hrl").
 
 
+%%
+%%
+%%
 do_ping_test_() ->
     {setup,
         fun() -> ok end,
@@ -34,6 +37,9 @@ do_ping_test_() ->
     }.
 
 
+%%
+%%
+%%
 do_find_node_test_() ->
     {setup,
         fun() -> ok end,
@@ -57,6 +63,9 @@ do_find_node_test_() ->
     }.
 
 
+%%
+%%
+%%
 do_get_peers_test_() ->
     {setup,
         fun() -> ok end,
@@ -88,6 +97,9 @@ do_get_peers_test_() ->
     }.
 
 
+%%
+%%
+%%
 do_announce_peer_test_() ->
     {setup,
         fun() -> ok end,
@@ -111,6 +123,9 @@ do_announce_peer_test_() ->
     }.
 
 
+%%
+%%
+%%
 do_error_response_test_() ->
     {setup,
         fun() -> ok end,
