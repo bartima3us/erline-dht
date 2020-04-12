@@ -387,7 +387,7 @@ parse_response_dict(ping, _TxId, Resp) ->
 parse_response_dict(find_node, _TxId, Resp) ->
     case dict:find(<<"nodes">>, Resp) of
         {ok, CompactNodeInfo} ->
-            erline_dht_helper:parse_compact_node_info(CompactNodeInfo);
+            erline_dht_helper:decode_compact_node_info(CompactNodeInfo);
         error ->
             []
     end;
@@ -399,12 +399,12 @@ parse_response_dict(get_peers, TxId, Resp) ->
     end,
     case dict:find(<<"values">>, Resp) of
         {ok, {list, PeerInfoList}} ->
-            ParsedPeerInfoList = erline_dht_helper:parse_peer_info(PeerInfoList),
+            ParsedPeerInfoList = erline_dht_helper:decode_peer_info(PeerInfoList),
             {peers, TxId, ParsedPeerInfoList, PeerToken};
         error ->
             case dict:find(<<"nodes">>, Resp) of
                 {ok, CompactNodeInfo} ->
-                    ParsedCompactNodeInfo = erline_dht_helper:parse_compact_node_info(CompactNodeInfo),
+                    ParsedCompactNodeInfo = erline_dht_helper:decode_compact_node_info(CompactNodeInfo),
                     {nodes, TxId, ParsedCompactNodeInfo, PeerToken};
                 error ->
                     {nodes, TxId, [], PeerToken}

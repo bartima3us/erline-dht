@@ -14,8 +14,8 @@
 -export([
     get_distance/2,
     get_hash_of_distance/2,
-    parse_compact_node_info/1,
-    parse_peer_info/1,
+    decode_compact_node_info/1,
+    decode_peer_info/1,
     datetime_diff/2,
     change_datetime/2,
     notify/2,
@@ -99,47 +99,47 @@ get_hash_of_distance(Hash, Distance) ->
 %%  @doc
 %%  Parse compact node info binary.
 %%  @end
--spec parse_compact_node_info(
+-spec decode_compact_node_info(
     Info :: binary()
 ) -> [ParsedCompactNodeInfo :: parsed_compact_node_info()].
 
-parse_compact_node_info(Info) ->
-    parse_compact_node_info(Info, []).
+decode_compact_node_info(Info) ->
+    decode_compact_node_info(Info, []).
 
-parse_compact_node_info(<<>>, Result) ->
+decode_compact_node_info(<<>>, Result) ->
     Result;
 
-parse_compact_node_info(<<Hash:20/binary, Ip:4/binary, Port:2/binary, Rest/binary>>, Result) ->
+decode_compact_node_info(<<Hash:20/binary, Ip:4/binary, Port:2/binary, Rest/binary>>, Result) ->
     <<PortInt:16>> = Port,
     <<Oct1:8, Oct2:8, Oct3:8, Oct4:8>> = Ip,
     Node = #{hash => Hash, ip => {Oct1, Oct2, Oct3, Oct4}, port => PortInt},
-    parse_compact_node_info(Rest, [Node | Result]);
+    decode_compact_node_info(Rest, [Node | Result]);
 
-parse_compact_node_info(_Other, Result) ->
+decode_compact_node_info(_Other, Result) ->
     Result.
 
 
 %%  @doc
 %%  Parse peer info list of binaries.
 %%  @end
--spec parse_peer_info(
+-spec decode_peer_info(
     PeerInfoList :: [binary()]
 ) -> [ParsedPeerInfo :: parsed_peer_info()].
 
-parse_peer_info(PeerInfoList) ->
-    parse_peer_info(PeerInfoList, []).
+decode_peer_info(PeerInfoList) ->
+    decode_peer_info(PeerInfoList, []).
 
-parse_peer_info([], Result) ->
+decode_peer_info([], Result) ->
     Result;
 
-parse_peer_info([<<Ip:4/binary, Port:2/binary>> | PeerInfoList], Result) ->
+decode_peer_info([<<Ip:4/binary, Port:2/binary>> | PeerInfoList], Result) ->
     <<PortInt:16>> = Port,
     <<Oct1:8, Oct2:8, Oct3:8, Oct4:8>> = Ip,
     Peer = #{ip => {Oct1, Oct2, Oct3, Oct4}, port => PortInt},
-    parse_peer_info(PeerInfoList, [Peer | Result]);
+    decode_peer_info(PeerInfoList, [Peer | Result]);
 
-parse_peer_info([_Other | PeerInfoList], Result) ->
-    parse_peer_info(PeerInfoList, Result).
+decode_peer_info([_Other | PeerInfoList], Result) ->
+    decode_peer_info(PeerInfoList, Result).
 
 
 %%  @doc

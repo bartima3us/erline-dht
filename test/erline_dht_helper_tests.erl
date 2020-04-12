@@ -75,7 +75,7 @@ get_distance_test_() ->
     }.
 
 
-parse_compact_node_info_test_() ->
+decode_compact_node_info_test_() ->
     {setup,
         fun() -> ok end,
         fun(_) -> ok end,
@@ -92,7 +92,7 @@ parse_compact_node_info_test_() ->
                         ip   => {65,12,45,225},
                         port => 8520
                     }],
-                    erline_dht_helper:parse_compact_node_info(
+                    erline_dht_helper:decode_compact_node_info(
                         <<169,246,141,183,17,96,15,191,158,252,221,69,218,231,8,97,231,8,214,41, 65,12,45,225,33,72,
                           169,246,141,183,17,96,15,191,158,252,221,69,218,231,8,97,231,8,214,43, 12,34,92,156,4,77>>
                     )
@@ -102,7 +102,7 @@ parse_compact_node_info_test_() ->
     }.
 
 
-parse_peer_info_test_() ->
+decode_peer_info_test_() ->
     {setup,
         fun() -> ok end,
         fun(_) -> ok end,
@@ -114,7 +114,7 @@ parse_peer_info_test_() ->
                       #{ip => {11,54,87,145}, port => 8237},
                       #{ip => {65,12,45,225}, port => 8520}
                     ],
-                    erline_dht_helper:parse_peer_info([
+                    erline_dht_helper:decode_peer_info([
                         <<65,12,45,225, 33,72>>,
                         <<11,54,87,145, 32,45>>,
                         <<12,34,92,156, 4,77>>
