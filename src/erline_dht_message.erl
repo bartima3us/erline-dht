@@ -14,7 +14,14 @@
     send_ping/5,
     respond_ping/5,
     send_find_node/6,
+    respond_find_node/6,
     send_get_peers/6,
+    error_response/3,
+    parse_krpc_response/2
+]).
+
+-ifdef(TEST).
+-export([
     ping_request/2,
     ping_response/2,
     find_node_request/3,
@@ -22,10 +29,9 @@
     get_peers_request/3,
     get_peers_response/4,
     announce_peer_request/6,
-    announce_peer_response/2,
-    error_response/3,
-    parse_krpc_response/2
+    announce_peer_response/2
 ]).
+-endif.
 
 -type krpc_error_code() :: 201 | 202 | 203 | 204.
 
@@ -57,11 +63,11 @@ send_ping(Ip, Port, Socket, TxId, MyNodeId) ->
     Ip          :: inet:ip_address(),
     Port        :: inet:port_number(),
     Socket      :: port(),
-    MyNodeId    :: binary(),
-    TxId        :: tx_id()
+    TxId        :: tx_id(),
+    MyNodeId    :: binary()
 ) -> ok.
 
-respond_ping(Ip, Port, Socket, MyNodeId, TxId) ->
+respond_ping(Ip, Port, Socket, TxId, MyNodeId) ->
     Payload = ping_response(TxId, MyNodeId),
     ok = socket_send(Socket, Ip, Port, Payload).
 
@@ -80,6 +86,23 @@ respond_ping(Ip, Port, Socket, MyNodeId, TxId) ->
 
 send_find_node(Ip, Port, Socket, TxId, MyNodeId, TargetNodeId) ->
     Payload = find_node_request(TxId, MyNodeId, TargetNodeId),
+    ok = socket_send(Socket, Ip, Port, Payload).
+
+
+%%  @doc
+%%  Create `find_node` response and send it.
+%%  @end
+-spec respond_find_node(
+    Ip          :: inet:ip_address(),
+    Port        :: inet:port_number(),
+    Socket      :: port(),
+    TxId        :: tx_id(),
+    MyNodeId    :: binary(),
+    Nodes       :: binary()
+) -> ok.
+
+respond_find_node(Ip, Port, Socket, TxId, MyNodeId, Nodes) ->
+    Payload = find_node_response(TxId, MyNodeId, Nodes),
     ok = socket_send(Socket, Ip, Port, Payload).
 
 
@@ -312,19 +335,23 @@ parse_krpc_response(Response, ActiveTxs) ->
             case dict:find(<<"t">>, ResponseDict) of
                 {ok, TxId} ->
                     case dict:find(<<"y">>, ResponseDict) of
-                        % Got query from node
+                        % Received query from node
                         {ok, <<"q">>} ->
                             case {dict:find(<<"q">>, ResponseDict), dict:find(<<"a">>, ResponseDict)} of
                                 {{ok, <<"ping">>}, {ok, {dict, Args}}} ->
                                     {ok, Hash} = dict:find(<<"id">>, Args),
                                     {ok, ping, q, Hash, TxId};
+                                {{ok, <<"ping">>}, {ok, {dict, Args}}} ->
+                                    {ok, Target} = dict:find(<<"target">>, Args),
+                                    {ok, Hash} = dict:find(<<"hash">>, Args),
+                                    {ok, find_node, q, {Hash, Target}, TxId};
                                 % @todo implement requests handling
                                 {{ok, <<"announce_peer">>}, {ok, {dict, Args}}} ->
                                     {ok, announce_peer, q, <<>>, TxId};
                                 _ ->
                                     {error, {bad_query, ResponseDict}}
                             end;
-                        % Got response from node
+                        % Received response from node
                         {ok, OtherY} ->
                             case lists:keysearch(TxId, 2, ActiveTxs) of
                                 {value, ActiveTx = {ReqType, TxId}} ->

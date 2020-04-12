@@ -26,7 +26,7 @@ Derivative project from https://github.com/bartima3us/erl-bittorrent
 
 * ```{ping, q, Ip :: inet:ip_address(), Port :: inet:port_number(), NodeHash :: binary()}```
 * ```{ping, r, Ip :: inet:ip_address(), Port :: inet:port_number(), NodeHash :: binary()}```
-* ```{find_node, q, Ip :: inet:ip_address(), Port :: inet:port_number(), Data}``` % @todo
+* ```{find_node, q, Ip :: inet:ip_address(), Port :: inet:port_number(), {NodeHash :: binary(), Target :: binary()}}```
 * ```{find_node, r, Ip :: inet:ip_address(), Port :: inet:port_number(), Nodes :: [#{ip => inet:ip_address(), port => inet:port_number(), hash => binary()}]}```
 * ```{get_peers, q, Ip :: inet:ip_address(), Port :: inet:port_number(), Data}``` % @todo
 * ```{get_peers, r, Ip :: inet:ip_address(), Port :: inet:port_number(), {nodes, InfoHash :: binary(), Nodes :: [#{ip => inet:ip_address(), port => inet:port_number(), hash => binary()}]}}```

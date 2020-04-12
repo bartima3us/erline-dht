@@ -40,6 +40,7 @@
 -ifdef(TEST).
 -export([
     handle_ping_query/5,
+    handle_find_node_query/6,
     handle_find_node_response/5,
     handle_get_peers_response/5,
     do_ping_async/3,
@@ -435,17 +436,16 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
     NewState = case erline_dht_message:parse_krpc_response(Response, ActiveTx) of
         %
         % Handle ping query
-        {ok, ping, q, NodeHash, GotTxId} ->
-            handle_ping_query(Ip, Port, NodeHash, GotTxId, State);
+        {ok, ping, q, NodeHash, ReceivedTxId} ->
+            handle_ping_query(Ip, Port, NodeHash, ReceivedTxId, State);
         %
         % Handle ping response
         {ok, ping, r, NewNodeHash, NewActiveTx} ->
             handle_ping_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State);
-        % @todo implement
+        %
         % Handle find_node query
-        {ok, find_node, q, _, _} ->
-            ok = erline_dht_helper:notify(EventMgrPid, {find_node, q, Ip, Port, <<>>}),
-            State;
+        {ok, find_node, q, {NodeHash, Target}, ReceivedTxId} ->
+            handle_find_node_query(Ip, Port, NodeHash, Target, ReceivedTxId, State);
         %
         % Handle find_node response
         {ok, find_node, r, Nodes, NewActiveTx} ->
@@ -462,7 +462,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         % @todo implement
         % @todo if token is bad, respond with 203 Protocol Error, such as a malformed packet, invalid arguments, or bad token
         % Handle announce_peer query
-        {ok, announce_peer, q, _Data, _GotTxId} ->
+        {ok, announce_peer, q, _Data, _ReceivedTxId} ->
             ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, q, Ip, Port, <<>>}),
             update_node(Ip, Port, [{last_changed, erline_dht_helper:local_time()}], State);
         % @todo implement
@@ -577,21 +577,21 @@ code_change(_OldVsn, State, _Extra) ->
 %%  Handle ping query from socket.
 %%  @end
 -spec handle_ping_query(
-    Ip          :: inet:ip_address(),
-    Port        :: inet:port_number(),
-    NodeHash    :: binary(),
-    GotTxId     :: tx_id(),
-    State       :: #state{}
+    Ip              :: inet:ip_address(),
+    Port            :: inet:port_number(),
+    NodeHash        :: binary(),
+    ReceivedTxId    :: tx_id(),
+    State           :: #state{}
 ) -> NewState :: #state{}.
 
-handle_ping_query(Ip, Port, NodeHash, GotTxId, State) ->
+handle_ping_query(Ip, Port, NodeHash, ReceivedTxId, State) ->
     #state{
         socket        = Socket,
         event_mgr_pid = EventMgrPid,
         my_node_hash  = MyNodeHash
     } = State,
     ok = erline_dht_helper:notify(EventMgrPid, {ping, q, Ip, Port, NodeHash}),
-    ok = erline_dht_message:respond_ping(Ip, Port, Socket, MyNodeHash, GotTxId),
+    ok = erline_dht_message:respond_ping(Ip, Port, Socket, ReceivedTxId, MyNodeHash),
     ok = add_node(Ip, Port, NodeHash),
     State.
 
@@ -650,7 +650,35 @@ handle_ping_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State) ->
 
 %%  @private
 %%  @doc
-%%  Handle ping query from socket.
+%%  Handle find_node query from socket.
+%%  @end
+-spec handle_find_node_query(
+    Ip              :: inet:ip_address(),
+    Port            :: inet:port_number(),
+    NodeHash        :: binary(),
+    Target          :: binary(),
+    ReceivedTxId    :: tx_id(),
+    State           :: #state{}
+) -> NewState :: #state{}.
+
+handle_find_node_query(Ip, Port, NodeHash, Target, ReceivedTxId, State) ->
+    #state{
+        socket        = Socket,
+        event_mgr_pid = EventMgrPid,
+        my_node_hash  = MyNodeHash,
+        k             = K
+    } = State,
+    ok = erline_dht_helper:notify(EventMgrPid, {find_node, q, Ip, Port, {NodeHash, Target}}),
+    Nodes = find_n_closest_nodes(Target, K, State),
+    CompactNodesInfo = erline_dht_helper:encode_compact_node_info(Nodes),
+    ok = erline_dht_message:respond_find_node(Ip, Port, Socket, ReceivedTxId, MyNodeHash, CompactNodesInfo),
+    ok = add_node(Ip, Port, NodeHash),
+    State.
+
+
+%%  @private
+%%  @doc
+%%  Handle find_node response from socket.
 %%  @end
 -spec handle_find_node_response(
     Ip          :: inet:ip_address(),
