@@ -31,8 +31,8 @@ Derivative project from https://github.com/bartima3us/erl-bittorrent
 * ```{get_peers, q, Ip :: inet:ip_address(), Port :: inet:port_number(), {NodeHash :: binary(), InfoHash :: binary()}```
 * ```{get_peers, r, Ip :: inet:ip_address(), Port :: inet:port_number(), {nodes, InfoHash :: binary(), Nodes :: [#{ip => inet:ip_address(), port => inet:port_number(), hash => binary()}]}}```
 * ```{get_peers, r, Ip :: inet:ip_address(), Port :: inet:port_number(), {peers, InfoHash :: binary(), Peers :: [#{ip => inet:ip_address(), port => inet:port_number()}]}}```
-* ```{announce_peer, q, Ip :: inet:ip_address(), Port :: inet:port_number(), Data}``` % @todo
-* ```{announce_peer, r, Ip :: inet:ip_address(), Port :: inet:port_number(), Data}``` % @todo
+* ```{announce_peer, q, Ip :: inet:ip_address(), Port :: inet:port_number(), {Hash :: binary(), ImpliedPort :: 0 | 1, InfoHash :: binary(), PeerPort :: inet:port_number(), Token :: binary()}}```
+* ```{announce_peer, r, Ip :: inet:ip_address(), Port :: inet:port_number(), NodeHash :: binary()}```
 
 ## <a name="status">Status</a> ##
 

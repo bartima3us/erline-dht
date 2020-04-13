@@ -382,6 +382,7 @@ handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{}) ->
         {undefined, undefined} ->
             % First check in the local cache for a peer
             LocalPeers = find_local_peers_by_info_hash(InfoHash, State),
+            % First peers are from self node
             {ok, {LocalIp, LocalPort}} = inet:sockname(Socket),
             ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, LocalIp, LocalPort, {peers, InfoHash, LocalPeers}}),
             io:format("xxxxxx LocalPeers = ~p~n", [LocalPeers]),
@@ -467,13 +468,13 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         % @todo implement
         % @todo if token is bad, respond with 203 Protocol Error, such as a malformed packet, invalid arguments, or bad token
         % Handle announce_peer query
-        {ok, announce_peer, q, _Data, _ReceivedTxId} ->
-            ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, q, Ip, Port, <<>>}),
-            update_node(Ip, Port, [{last_changed, erline_dht_helper:local_time()}], State);
+        {ok, announce_peer, q, {NodeHash, ImpliedPort, InfoHash, PeerPort, ReceivedToken}, ReceivedTxId} ->
+            ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, q, Ip, Port, {NodeHash, ImpliedPort, InfoHash, PeerPort, ReceivedToken}}),
+            State;
         % @todo implement
         % Handle announce_peer response
-        {ok, announce_peer, r, _, _} ->
-            ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, r, Ip, Port, <<>>}),
+        {ok, announce_peer, r, NodeHash, NewActiveTx} ->
+            ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, r, Ip, Port, NodeHash}),
             State;
         %
         % Handle errors
@@ -491,6 +492,9 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
             ],
             update_node(Ip, Port, Params, State);
         {error, {non_existing_tx, _TxId}} ->
+            State;
+        {error, {bad_args, _BadArgs}} ->
+            % @todo respond with 203 Protocol Error, such as a malformed packet, invalid arguments, or bad token
             State;
         {error, {bad_query, _BadQuery}} ->
             % @todo respond with 204 Method Unknown
@@ -742,7 +746,7 @@ handle_get_peers_query(Ip, Port, NodeHash, InfoHash, ReceivedTxId, State) ->
     PeersOrNodes = case lists:keysearch(InfoHash, #info_hash.info_hash, InfoHashes) of
         {value, #info_hash{peers = Peers}} ->
             erline_dht_helper:encode_peer_info(Peers);
-        error ->
+        false ->
             Nodes = find_n_closest_nodes(InfoHash, K, State),
             erline_dht_helper:encode_compact_node_info(Nodes)
     end,
