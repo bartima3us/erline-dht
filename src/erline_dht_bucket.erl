@@ -51,7 +51,7 @@
     update_node/4,
     update_bucket/3,
     maybe_clear_bucket/2,
-    find_n_closest_nodes/3,
+    find_n_closest_nodes/5,
     find_local_peers_by_info_hash/2,
     add_peer/4,
     clear_peers_searches/1,
@@ -69,13 +69,13 @@
 -define(BUCKET_PING_HIGH_TIME, 840000). % 12 min
 -define(BUCKET_CHECK_LOW_TIME, 60000). % 1 min
 -define(BUCKET_CHECK_HIGH_TIME, 180000). % 3 min
--define(GET_PEERS_SEARCH_CHECK_TIME, 60000). % 1 min
+-define(GET_PEERS_SEARCH_CHECK_TIME, 5000). % 5 s
 -define(CLEAR_NOT_ASSIGNED_NODES_TIME, 60000). % 1 min
 -define(UPDATE_TOKENS_TIME, 300000). % 5 min
 -define(NOT_ACTIVE_NOT_ASSIGNED_NODES_TTL, 90). % 90 s
 -define(ACTIVE_NOT_ASSIGNED_NODES_TTL, 300). % 5 min
 -define(ACTIVE_TTL, 840). % 14 min
--define(GET_PEERS_SEARCH_TTL, 120). % 2 min
+-define(GET_PEERS_SEARCH_TTL, 20). % 20 s
 -define(SUSPICIOUS_TTL, 900). % 15 min (ACTIVE_TTL + 1 min)
 -define(GET_NOT_ASSIGNED_NODES_CALL_TIMEOUT, 15000).
 
@@ -478,26 +478,18 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
             State;
         %
         % Handle errors
-        {error, {krpc_error, Reason}, NewActiveTx} ->
-            ok = erline_dht_helper:notify(EventMgrPid, {error, r, Ip, Port, Reason}),
-            Params = [
-                {last_changed, erline_dht_helper:local_time()},
-                {active_txs,   NewActiveTx}
-            ],
-            update_node(Ip, Port, Params, State);
+        {error, {krpc_error, ErrorCode, ErrorReason}, NewActiveTx} ->
+            ok = erline_dht_helper:notify(EventMgrPid, {error, r, Ip, Port, {ErrorCode, ErrorReason}}),
+            update_node(Ip, Port, [{active_txs, NewActiveTx}], State);
         {error, {bad_type, _BadType}, NewActiveTx} ->
-            Params = [
-                {last_changed, erline_dht_helper:local_time()},
-                {active_txs,   NewActiveTx}
-            ],
-            update_node(Ip, Port, Params, State);
+            update_node(Ip, Port, [{active_txs, NewActiveTx}], State);
         {error, {non_existing_tx, _TxId}} ->
             State;
-        {error, {bad_args, _BadArgs}} ->
-            % @todo respond with 203 Protocol Error, such as a malformed packet, invalid arguments, or bad token
+        {error, {bad_args, _BadArgs, ReceivedTxId}} ->
+            erline_dht_message:respond_error(Socket, Ip, Port, ReceivedTxId, 203, <<"Invalid Arguments">>),
             State;
-        {error, {bad_query, _BadQuery}} ->
-            % @todo respond with 204 Method Unknown
+        {error, {bad_query, _BadQuery, ReceivedTxId}} ->
+            erline_dht_message:respond_error(Socket, Ip, Port, ReceivedTxId, 204, <<"Method Unknown">>),
             State;
         {error, {bad_response, _BadResponse}} ->
             State
@@ -609,7 +601,7 @@ handle_ping_query(Ip, Port, NodeHash, ReceivedTxId, State) ->
     ok = erline_dht_helper:notify(EventMgrPid, {ping, q, Ip, Port, NodeHash}),
     ok = erline_dht_message:respond_ping(Ip, Port, Socket, ReceivedTxId, MyNodeHash),
     ok = add_node(Ip, Port, NodeHash),
-    State.
+    update_node(Ip, Port, [{last_changed, erline_dht_helper:local_time()}], State).
 
 
 %%
@@ -685,11 +677,11 @@ handle_find_node_query(Ip, Port, NodeHash, Target, ReceivedTxId, State) ->
         k             = K
     } = State,
     ok = erline_dht_helper:notify(EventMgrPid, {find_node, q, Ip, Port, {NodeHash, Target}}),
-    Nodes = find_n_closest_nodes(Target, K, State),
+    Nodes = find_n_closest_nodes(Ip, Port, Target, K, State),
     CompactNodesInfo = erline_dht_helper:encode_compact_node_info(Nodes),
     ok = erline_dht_message:respond_find_node(Ip, Port, Socket, ReceivedTxId, MyNodeHash, CompactNodesInfo),
     ok = add_node(Ip, Port, NodeHash),
-    State.
+    update_node(Ip, Port, [{last_changed, erline_dht_helper:local_time()}], State).
 
 
 %%  @private
@@ -747,12 +739,12 @@ handle_get_peers_query(Ip, Port, NodeHash, InfoHash, ReceivedTxId, State) ->
         {value, #info_hash{peers = Peers}} ->
             erline_dht_helper:encode_peer_info(Peers);
         false ->
-            Nodes = find_n_closest_nodes(InfoHash, K, State),
+            Nodes = find_n_closest_nodes(Ip, Port, InfoHash, K, State),
             erline_dht_helper:encode_compact_node_info(Nodes)
     end,
     ok = erline_dht_message:respond_get_peers(Ip, Port, Socket, ReceivedTxId, MyNodeHash, Token, PeersOrNodes),
     ok = add_node(Ip, Port, NodeHash),
-    State.
+    update_node(Ip, Port, [{last_changed, erline_dht_helper:local_time()}], State).
 
 
 %%  @private
@@ -1176,20 +1168,25 @@ maybe_clear_bucket(Distance, State = #state{k = K, buckets = Buckets}) ->
 %%  Find N closest nodes for the given hash.
 %%  @end
 -spec find_n_closest_nodes(
-    Hash    :: binary(),
-    N       :: pos_integer(),
-    State   :: #state{}
+    ExcludeIp   :: inet:ip_address(),
+    ExcludePort :: inet:port_number(),
+    Hash        :: binary(),
+    N           :: pos_integer(),
+    State       :: #state{}
 ) -> ClosestNodes :: [{IpPort :: {inet:ip_address(), inet:port_number()}, NodeHash :: binary()}].
 
-find_n_closest_nodes(Hash, N, #state{buckets = Buckets}) ->
+find_n_closest_nodes(ExcludeIp, ExcludePort, Hash, N, #state{buckets = Buckets}) ->
     AllNodes = lists:flatten(lists:map(fun (#bucket{nodes = Nodes}) ->
         Nodes
     end, Buckets)),
-    NodesWithDist = lists:foldl(fun (#node{hash = NodeHash, ip_port = IpPort}, AccNodes) ->
-        case erline_dht_helper:get_distance(Hash, NodeHash) of
-            {ok, Distance}   -> [{Distance, IpPort, NodeHash} | AccNodes];
-            {error, _Reason} -> AccNodes
-        end
+    NodesWithDist = lists:foldl(fun
+        (#node{hash = NodeHash, ip_port = IpPort}, AccNodes) when IpPort =/= {ExcludeIp, ExcludePort} ->
+            case erline_dht_helper:get_distance(Hash, NodeHash) of
+                {ok, Distance}   -> [{Distance, IpPort, NodeHash} | AccNodes];
+                {error, _Reason} -> AccNodes
+            end;
+        (#node{}, AccNodes) ->
+            AccNodes
     end, [], AllNodes),
     [{IpPort0, Hash0} || {_, IpPort0, Hash0} <- lists:sublist(lists:usort(NodesWithDist), N)].
 

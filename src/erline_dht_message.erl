@@ -17,6 +17,7 @@
     respond_find_node/6,
     send_get_peers/6,
     respond_get_peers/7,
+    respond_error/6,
     parse_krpc_response/2
 ]).
 
@@ -148,6 +149,14 @@ respond_get_peers(Ip, Port, Socket, TxId, MyNodeId, Token, NodesOrPeers) ->
 
 
 %%  @doc
+%%  Create `error` response and send it.
+%%  @end
+respond_error(Socket, Ip, Port, TxId, ErrorCode, ErrorDescription) ->
+    Payload = error_response(TxId, ErrorCode, ErrorDescription),
+    ok = socket_send(Socket, Ip, Port, Payload).
+
+
+%%  @doc
 %%  Parse KRPC response. http://bittorrent.org/beps/bep_0005.html#krpc-protocol
 %%  @end
 -spec parse_krpc_response(
@@ -166,9 +175,9 @@ respond_get_peers(Ip, Port, Socket, TxId, MyNodeId, Token, NodesOrPeers) ->
         NewActiveTx :: [active_tx()]} |
     {ok, announce_peer, q, {Hash :: binary(), ImpliedPort :: 0 | 1, InfoHash :: binary(), Port :: inet:port_number(), Token :: binary()}, TxId :: tx_id()} |
     {ok, announce_peer, r, Hash :: binary(), NewActiveTx :: [active_tx()]} |
-    {error, {krpc_error, Error :: [term()]}, NewActiveTx :: [active_tx()]} | % Error :: [ErrorCode :: krpc_error_code(), Description :: binary()]
-    {error, {bad_query, Response :: term()}} |
-    {error, {bad_args, Args :: term()}} |
+    {error, {krpc_error, ErrorCode :: krpc_error_code(), ErrorReason :: binary()}, NewActiveTx :: [active_tx()]} |
+    {error, {bad_query, Response :: term(), TxId :: tx_id()}} |
+    {error, {bad_args, Args :: term(), TxId :: tx_id()}} |
     {error, {bad_type, BadType :: binary()}, NewActiveTx :: [active_tx()]} |
     {error, {non_existing_tx, TxId :: tx_id()}} |
     {error, {bad_response, Response :: term()}}.
@@ -192,8 +201,8 @@ parse_krpc_response(Response, ActiveTxs) ->
                                             {ok, ReqType, r, parse_response_dict(ReqType, TxId, R), ActiveTxs -- [ActiveTx]};
                                         <<"e">> ->
                                             % Example: {ok,{list,[202,<<"Server Error">>]}
-                                            {ok, {list, E}} = dict:find(<<"e">>, ResponseDict),
-                                            {error, {krpc_error, E}, ActiveTxs -- [ActiveTx]};
+                                            {ok, {list, [RespErrCode, RespErrReason]}} = dict:find(<<"e">>, ResponseDict),
+                                            {error, {krpc_error, RespErrCode, RespErrReason}, ActiveTxs -- [ActiveTx]};
                                         BadType ->
                                             {error, {bad_type, BadType}, ActiveTxs -- [ActiveTx]}
                                     end;
@@ -482,25 +491,25 @@ parse_response_dict(announce_peer, _TxId, Resp) ->
     {ok, find_node, q, {Hash :: binary(), Target :: binary()}, TxId :: tx_id()} |
     {ok, get_peers, q, {Hash :: binary(), InfoHash :: binary()}, TxId :: tx_id()} |
     {ok, announce_peer, q, {Hash :: binary(), ImpliedPort :: 0 | 1, InfoHash :: binary(), Port :: inet:port_number(), Token :: binary()}, TxId :: tx_id()} |
-    {error, {bad_args, Args :: term()}} |
-    {error, {bad_query, Response :: term()}}.
+    {error, {bad_args, Args :: term(), TxId :: tx_id()}} |
+    {error, {bad_query, Response :: term(), TxId :: tx_id()}}.
 
 parse_krpc_arguments(ResponseDict, TxId) ->
     case {dict:find(<<"q">>, ResponseDict), dict:find(<<"a">>, ResponseDict)} of
         {{ok, <<"ping">>}, {ok, {dict, Args}}} ->
             case dict:find(<<"id">>, Args) of
                 {ok, Hash} -> {ok, ping, q, Hash, TxId};
-                error      -> {error, {bad_args, Args}}
+                error      -> {error, {bad_args, Args, TxId}}
             end;
         {{ok, <<"find_node">>}, {ok, {dict, Args}}} ->
             case {dict:find(<<"id">>, Args), dict:find(<<"target">>, Args)} of
                 {{ok, Hash}, {ok, Target}} -> {ok, find_node, q, {Hash, Target}, TxId};
-                _                          -> {error, {bad_args, Args}}
+                _                          -> {error, {bad_args, Args, TxId}}
             end;
         {{ok, <<"get_peers">>}, {ok, {dict, Args}}} ->
             case {dict:find(<<"id">>, Args), dict:find(<<"info_hash">>, Args)} of
                 {{ok, Hash}, {ok, InfoHash}} -> {ok, get_peers, q, {Hash, InfoHash}, TxId};
-                _                            -> {error, {bad_args, Args}}
+                _                            -> {error, {bad_args, Args, TxId}}
             end;
         {{ok, <<"announce_peer">>}, {ok, {dict, Args}}} ->
             ImpliedPort = case dict:find(<<"implied_port">>, Args) of
@@ -515,10 +524,10 @@ parse_krpc_arguments(ResponseDict, TxId) ->
                 {{ok, Hash}, {ok, InfoHash}, {ok, Port}, {ok, Token}} ->
                     {ok, announce_peer, q, {Hash, ImpliedPort, InfoHash, Port, Token}, TxId};
                 _ ->
-                    {error, {bad_args, Args}}
+                    {error, {bad_args, Args, TxId}}
             end;
         _ ->
-            {error, {bad_query, ResponseDict}}
+            {error, {bad_query, ResponseDict, TxId}}
     end.
 
 

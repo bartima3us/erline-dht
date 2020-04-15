@@ -86,23 +86,43 @@ handle_ping_query_test_() ->
     EventMgrPid = erlang:list_to_pid("<0.0.100>"),
     State = #state{
         event_mgr_pid = EventMgrPid,
+        db_mod        = erline_dht_db_ets,
         socket        = sock,
-        my_node_hash  = <<"h45h">>
+        my_node_hash  = <<"h45h">>,
+        buckets       = [
+            #bucket{
+                distance = 1,
+                nodes    = [#node{ip_port = {{12,34,92,155}, 6862}}]
+            }
+        ]
     },
     {setup,
         fun() ->
-            ok = meck:new([erline_dht_message, erline_dht_helper]),
+            ok = meck:new([erline_dht_message, erline_dht_helper, erline_dht_db_ets]),
             ok = meck:expect(erline_dht_message, respond_ping, [{12,34,92,155}, 6862, sock, <<0,2>>, <<"h45h">>], ok),
-            ok = meck:expect(erline_dht_helper, notify, [EventMgrPid, {ping, q, {12,34,92,155}, 6862, <<"n0d3_h45h">>}], ok)
+            ok = meck:expect(erline_dht_helper, notify, [EventMgrPid, {ping, q, {12,34,92,155}, 6862, <<"n0d3_h45h">>}], ok),
+            ok = meck:expect(erline_dht_helper, local_time, [], {{2020,7,1},{12,0,0}}),
+            ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, [{12,34,92,155}, 6862], [])
         end,
         fun(_) ->
-            true = meck:validate([erline_dht_message, erline_dht_helper]),
-            ok = meck:unload([erline_dht_message, erline_dht_helper])
+            true = meck:validate([erline_dht_message, erline_dht_helper, erline_dht_db_ets]),
+            ok = meck:unload([erline_dht_message, erline_dht_helper, erline_dht_db_ets])
         end,
-        [{"Handle ping query.",
+        [{"Handle ping query. Querying node is in the bucket.",
             fun() ->
                 ?assertEqual(
-                    State,
+                    #state{
+                        event_mgr_pid = EventMgrPid,
+                        db_mod        = erline_dht_db_ets,
+                        socket        = sock,
+                        my_node_hash  = <<"h45h">>,
+                        buckets       = [
+                            #bucket{
+                                distance = 1,
+                                nodes    = [#node{ip_port = {{12,34,92,155}, 6862}, last_changed = {{2020,7,1},{12,0,0}}}]
+                            }
+                        ]
+                    },
                     erline_dht_bucket:handle_ping_query({12,34,92,155}, 6862, <<"n0d3_h45h">>, <<0,2>>, State)
                 ),
                 ?assertEqual(
@@ -112,6 +132,14 @@ handle_ping_query_test_() ->
                 ?assertEqual(
                     1,
                     meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {ping, q, {12,34,92,155}, 6862, <<"n0d3_h45h">>}])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, local_time, [])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, get_not_assigned_node, [{12,34,92,155}, 6862])
                 )
             end
         }]
@@ -125,6 +153,7 @@ handle_find_node_query_test_() ->
     EventMgrPid = erlang:list_to_pid("<0.0.100>"),
     State = #state{
         event_mgr_pid = EventMgrPid,
+        db_mod        = erline_dht_db_ets,
         socket        = sock,
         my_node_hash  = <<"h45h">>,
         k             = 3,
@@ -150,7 +179,7 @@ handle_find_node_query_test_() ->
     },
     {setup,
         fun() ->
-            ok = meck:new([erline_dht_message, erline_dht_helper]),
+            ok = meck:new([erline_dht_message, erline_dht_helper, erline_dht_db_ets]),
             ok = meck:expect(erline_dht_message, respond_find_node, [{12,34,92,155}, 6862, sock, <<0,2>>, <<"h45h">>, '_'], ok),
             ok = meck:expect(erline_dht_helper, notify, [EventMgrPid, {find_node, q, {12,34,92,155}, 6862, {<<"n0d3_h45h">>, <<"t4rg3t">>}}], ok),
             ok = meck:expect(erline_dht_helper, get_distance, fun
@@ -162,13 +191,16 @@ handle_find_node_query_test_() ->
                 (<<"t4rg3t">>, <<"h45h6">>)       -> {ok, 7};
                 (<<"t4rg3t">>, <<"h45h7">>)       -> {ok, 5}
             end),
-            ok = meck:expect(erline_dht_helper, encode_compact_node_info, ['_'], <<"c0mp4ct_n0d35_1nf0">>)
+            ok = meck:expect(erline_dht_helper, encode_compact_node_info, ['_'], <<"c0mp4ct_n0d35_1nf0">>),
+            ok = meck:expect(erline_dht_helper, local_time, [], {{2020,7,1},{12,0,0}}),
+            ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, [{12,34,92,155}, 6862], [#node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>}]),
+            ok = meck:expect(erline_dht_db_ets, insert_to_not_assigned_nodes, [#node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, last_changed = {{2020,7,1},{12,0,0}}}], true)
         end,
         fun(_) ->
-            true = meck:validate([erline_dht_message, erline_dht_helper]),
-            ok = meck:unload([erline_dht_message, erline_dht_helper])
+            true = meck:validate([erline_dht_message, erline_dht_helper, erline_dht_db_ets]),
+            ok = meck:unload([erline_dht_message, erline_dht_helper, erline_dht_db_ets])
         end,
-        [{"Handle find_node query.",
+        [{"Handle find_node query. Querying node is in the not assigned nodes list.",
             fun() ->
                 ?assertEqual(
                     State,
@@ -185,6 +217,18 @@ handle_find_node_query_test_() ->
                 ?assertEqual(
                     1,
                     meck:num_calls(erline_dht_helper, encode_compact_node_info, ['_'])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, local_time, [])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, get_not_assigned_node, [{12,34,92,155}, 6862])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, [#node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, last_changed = {{2020,7,1},{12,0,0}}}])
                 )
             end
         }]
@@ -1215,6 +1259,7 @@ find_n_closest_nodes_test_() ->
             #bucket{
                 distance = 1,
                 nodes    = [
+                    #node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>},
                     #node{ip_port = {{12,34,92,156}, 6863}, hash = <<"h45h1">>},
                     #node{ip_port = {{12,34,92,157}, 6864}, hash = <<"h45h2">>},
                     #node{ip_port = {{12,34,92,158}, 6865}, hash = <<"h45h3">>},
@@ -1235,6 +1280,7 @@ find_n_closest_nodes_test_() ->
         fun() ->
             ok = meck:new(erline_dht_helper),
             ok = meck:expect(erline_dht_helper, get_distance, fun
+                (<<"h45h0">>, <<"h45h_self">>)   -> {ok, 1};
                 (<<"h45h0">>, <<"h45h1">>)       -> {ok, 3};
                 (<<"h45h0">>, <<"h45h2">>)       -> {ok, 4};
                 (<<"h45h0">>, <<"h45h3">>)       -> {ok, 3};
@@ -1257,7 +1303,7 @@ find_n_closest_nodes_test_() ->
                         {{{12,34,92,158}, 6865}, <<"h45h3">>},
                         {{{12,34,92,157}, 6864}, <<"h45h2">>}
                     ],
-                    erline_dht_bucket:find_n_closest_nodes(<<"h45h0">>, 4, State)
+                    erline_dht_bucket:find_n_closest_nodes({12,34,92,155}, 6862, <<"h45h0">>, 4, State)
                 ),
                 ?assertEqual(
                     7,
