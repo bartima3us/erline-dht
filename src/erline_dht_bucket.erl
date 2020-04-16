@@ -40,6 +40,7 @@
 -ifdef(TEST).
 -export([
     handle_ping_query/5,
+    handle_ping_response/6,
     handle_find_node_query/6,
     handle_find_node_response/5,
     handle_get_peers_query/6,
@@ -608,9 +609,19 @@ handle_ping_query(Ip, Port, NodeHash, ReceivedTxId, State) ->
     end.
 
 
-%%
-%%  @todo test
-%%
+%%  @private
+%%  @doc
+%%  Handle ping response from socket.
+%%  @end
+-spec handle_ping_response(
+    Ip          :: inet:ip_address(),
+    Port        :: inet:port_number(),
+    NewNodeHash :: binary(),
+    NewActiveTx :: [active_tx()],
+    Bucket      :: #bucket{} | false,
+    State       :: #state{}
+) -> NewState :: #state{}.
+
 handle_ping_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State) ->
     #state{
         event_mgr_pid = EventMgrPid,
@@ -638,14 +649,13 @@ handle_ping_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State) ->
                                 {false, NewState0} -> update_node(Ip, Port, Params ++ [unassign, {active_txs, NewActiveTx}], NewState0)
                             end
                     end;
-                % New node
+                % Not assigned to the bucket
                 false ->
                     NewState0 = update_node(Ip, Port, [{active_txs, NewActiveTx}], State),
-                    %{ok, TargetHash} = erline_dht_helper:get_hash_of_distance(MyNodeHash, crypto:rand_uniform(1, erlang:bit_size(MyNodeHash))),
                     {ok, NewState1} = do_find_node_async(Ip, Port, MyNodeHash, NewState0),
                     case maybe_clear_bucket(NewDist, NewState1) of
                         {true, NewState2}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState2);
-                        % No place in the bucket.
+                        % No free space in the bucket.
                         {false, NewState2} -> update_node(Ip, Port, Params, NewState2)
                     end
             end;
