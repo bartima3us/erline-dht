@@ -42,6 +42,7 @@
     handle_ping_query/5,
     handle_find_node_query/6,
     handle_find_node_response/5,
+    handle_get_peers_query/6,
     handle_get_peers_response/5,
     do_ping_async/3,
     do_find_node_async/4,
@@ -601,7 +602,10 @@ handle_ping_query(Ip, Port, NodeHash, ReceivedTxId, State) ->
     ok = erline_dht_helper:notify(EventMgrPid, {ping, q, Ip, Port, NodeHash}),
     ok = erline_dht_message:respond_ping(Ip, Port, Socket, ReceivedTxId, MyNodeHash),
     ok = add_node(Ip, Port, NodeHash),
-    update_node(Ip, Port, [{last_changed, erline_dht_helper:local_time()}], State).
+    case get_bucket_and_node(Ip, Port, State) of
+        {ok, Bucket, Node} -> update_node(Bucket, Node, [{last_changed, erline_dht_helper:local_time()}], State);
+        false              -> State
+    end.
 
 
 %%
@@ -681,7 +685,10 @@ handle_find_node_query(Ip, Port, NodeHash, Target, ReceivedTxId, State) ->
     CompactNodesInfo = erline_dht_helper:encode_compact_node_info(Nodes),
     ok = erline_dht_message:respond_find_node(Ip, Port, Socket, ReceivedTxId, MyNodeHash, CompactNodesInfo),
     ok = add_node(Ip, Port, NodeHash),
-    update_node(Ip, Port, [{last_changed, erline_dht_helper:local_time()}], State).
+    case get_bucket_and_node(Ip, Port, State) of
+        {ok, Bucket, Node} -> update_node(Bucket, Node, [{last_changed, erline_dht_helper:local_time()}], State);
+        false              -> State
+    end.
 
 
 %%  @private
@@ -716,7 +723,7 @@ handle_find_node_response(Ip, Port, Nodes, NewActiveTx, State) ->
 %%  @doc
 %%  Handle get_peers query from socket.
 %%  @end
--spec handle_get_peers_query(   % @todo test
+-spec handle_get_peers_query(
     Ip              :: inet:ip_address(),
     Port            :: inet:port_number(),
     NodeHash        :: binary(),
@@ -744,7 +751,10 @@ handle_get_peers_query(Ip, Port, NodeHash, InfoHash, ReceivedTxId, State) ->
     end,
     ok = erline_dht_message:respond_get_peers(Ip, Port, Socket, ReceivedTxId, MyNodeHash, Token, PeersOrNodes),
     ok = add_node(Ip, Port, NodeHash),
-    update_node(Ip, Port, [{last_changed, erline_dht_helper:local_time()}], State).
+    case get_bucket_and_node(Ip, Port, State) of
+        {ok, Bucket, Node} -> update_node(Bucket, Node, [{last_changed, erline_dht_helper:local_time()}], State);
+        false              -> State
+    end.
 
 
 %%  @private
