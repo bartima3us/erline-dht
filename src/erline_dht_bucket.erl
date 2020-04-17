@@ -214,10 +214,7 @@ get_buckets_filling() ->
 %%--------------------------------------------------------------------
 init([]) ->
     % Get my node hash
-    MyNodeHash = case erline_dht:get_env(node_hash, 20) of
-        HashOpt when is_integer(HashOpt) -> erline_dht_helper:generate_random_binary(HashOpt); % @todo use algorithm: http://www.bittorrent.org/beps/bep_0020.html
-        HashOpt when is_binary(HashOpt)  -> HashOpt
-    end,
+    MyNodeHash = get_my_node_hash(),
     % Open UDP socket
     SocketParams = [binary, {active, true}],
     {ok, Socket} = case gen_udp:open(erline_dht:get_env(port, 0), SocketParams) of
@@ -1095,7 +1092,7 @@ update_bucket(Distance, Params, State = #state{buckets = Buckets}) ->
 ) -> TimerRef :: reference().
 
 schedule_bucket_check(Distance) ->
-    Time = crypto:rand_uniform(?BUCKET_CHECK_LOW_TIME, ?BUCKET_CHECK_HIGH_TIME),
+    Time = crypto:rand_uniform(?BUCKET_CHECK_LOW_TIME, ?BUCKET_CHECK_HIGH_TIME), % @todo remove deprecated crypto:rand_uniform
     erlang:send_after(Time, self(), {bucket_check, Distance}).
 
 
@@ -1385,6 +1382,25 @@ clear_not_assigned_nodes(Distance, #state{db_mod = DbMod, not_assigned_clearing_
             end, NodesToRemove);
         _ ->
             ok
+    end.
+
+
+%%  @private
+%%  @doc
+%%  Generate my node hash or retrieve it from config.
+%%  @end
+-spec get_my_node_hash() -> binary().
+
+get_my_node_hash() ->
+    case erline_dht:get_env(node_hash, 20) of
+        HashOpt when is_integer(HashOpt) ->
+            {_, _, Vsn} = lists:keyfind(?APP, 1, application:loaded_applications()),
+            FormattedVsn = re:replace(Vsn, "\\.", "-", [global, {return, binary}]),
+            % Peer ID Conventions: http://www.bittorrent.org/beps/bep_0020.html
+            RandomPart = erline_dht_helper:generate_random_binary(HashOpt - (erlang:byte_size(FormattedVsn) + 1)),
+            <<"M", FormattedVsn/binary, RandomPart/binary>>;
+        HashOpt when is_binary(HashOpt) ->
+            HashOpt
     end.
 
 

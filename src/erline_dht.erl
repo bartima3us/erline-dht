@@ -4,6 +4,8 @@
 %%%-------------------------------------------------------------------
 
 -module(erline_dht).
+-author("bartimaeus").
+-include("erline_dht.hrl").
 
 -behaviour(application).
 
@@ -20,8 +22,6 @@
     start/2,
     stop/1
 ]).
-
--define(APP, erline_dht).
 
 %%====================================================================
 %% Application callbacks

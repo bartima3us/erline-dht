@@ -8,6 +8,8 @@
 %%%-------------------------------------------------------------------
 -author("bartimaeus").
 
+-define(APP, erline_dht).
+
 -type status()                      :: suspicious | active | not_active.
 -type request()                     :: ping | find_node | get_peers | announce.
 -type tx_id()                       :: binary().
