@@ -13,7 +13,6 @@
 %% API
 -export([
     get_distance/2,
-    get_hash_of_distance/2,
     encode_compact_node_info/1,
     decode_compact_node_info/1,
     encode_peer_info/1,
@@ -72,31 +71,6 @@ get_distance(<<Hash1:1/binary, _Hash1Rest/binary>>, <<Hash2:1/binary, _Hash2Rest
             Res
     end, 0, lists:seq(0, 8)),
     Result * 8 + DiffBitPosition.
-
-
-%%  @doc
-%%  Get a new hash of the specified distance by the specified hash.
-%%  @end
--spec get_hash_of_distance( % @todo test
-    Hash     :: binary(),
-    Distance :: distance()
-) -> {ok, NewHash :: binary()} |
-     {error, {malformed_hashes, Hash :: binary()}} |
-     {error, {hash_too_short, Hash :: binary()}}.
-
-get_hash_of_distance(Hash, _Distance) when not is_binary(Hash) ->
-    {error, {malformed_hash, Hash}};
-
-get_hash_of_distance(Hash, Distance) when bit_size(Hash) < Distance ->
-    {error, {hash_too_short, Hash}};
-
-get_hash_of_distance(Hash, Distance) ->
-    SamePartSize = Distance - 1,
-    <<SamePart:SamePartSize/bits, ImportantBit:1/bits, Rest/bits>> = Hash,
-    <<ImportantBitInt:1/integer>> = ImportantBit,
-    DiffBitInt = erlang:abs(ImportantBitInt - 1),
-    DiffBit = <<DiffBitInt:1>>,
-    {ok, <<SamePart/bits, DiffBit/bits, Rest/bits>>}.
 
 
 %%  @doc

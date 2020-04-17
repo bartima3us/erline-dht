@@ -165,7 +165,6 @@ respond_error(Socket, Ip, Port, TxId, ErrorCode, ErrorDescription) ->
     Response    :: binary(),
     ActiveTxs   :: [active_tx()]
 ) ->
-    % @todo tests
     {ok, ping, q, Hash :: binary(), TxId :: tx_id()} |
     {ok, ping, r, Hash :: binary(), NewActiveTx :: [active_tx()]} |
     {ok, find_node, q, {Hash :: binary(), Target :: binary()}, TxId :: tx_id()} |
@@ -552,7 +551,7 @@ krpc_request(TxId, q, Query, Args) ->
     Req1 = dict:store(<<"y">>, Type, Req0),
     Req2 = dict:store(Type, Query, Req1),
     Req3 = dict:store(<<"a">>, {dict, A}, Req2),
-%%    Req4 = dict:store(<<"v">>, <<76,84,1,0>>, Req3), % Version. Optional. @todo fix tests with it
+%%    Req4 = dict:store(<<"v">>, <<76,84,1,0>>, Req3), % Version. Optional.
     {dict, Req3}.
 
 %%  @private
@@ -602,16 +601,30 @@ krpc_request(TxId, e, Error = [_Code, _Description]) ->
 ) -> ok.
 
 socket_send(Socket, Ip, Port, Payload) ->
+    socket_send(Socket, Ip, Port, Payload, 50).
+
+socket_send(Socket, Ip, Port, Payload, Retries) ->
     case gen_udp:send(Socket, Ip, Port, Payload) of
         ok ->
             ok;
-        {error, einval} ->
-            ok; % Ip or port can be malformed
-        {error, eagain} ->
-            ok;  % @todo ???
-        {error, enetunreach} -> % @todo is this correct a way to handle network disconnections?
-            timer:sleep(5000),
-            socket_send(Socket, Ip, Port, Payload)
+        {error, einval} -> % Received IP or port can be malformed
+            ok;
+        {error, eagain} -> % System call failed
+            case Retries > 0 of
+                true ->
+                    timer:sleep(1000),
+                    socket_send(Socket, Ip, Port, Payload, Retries - 1);
+                false ->
+                    {error, eagain}
+            end;
+        {error, enetunreach} -> % Network is unreachable
+            case Retries > 0 of
+                true ->
+                    timer:sleep(5000),
+                    socket_send(Socket, Ip, Port, Payload, Retries - 1);
+                false ->
+                    {error, enetunreach}
+            end
     end.
 
 
