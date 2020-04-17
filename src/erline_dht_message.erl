@@ -32,7 +32,8 @@
     announce_peer_request/6,
     announce_peer_response/2,
     error_response/3,
-    parse_response_dict/3
+    parse_response_dict/3,
+    parse_krpc_arguments/2
 ]).
 -endif.
 
@@ -486,7 +487,7 @@ parse_response_dict(announce_peer, _TxId, Resp) ->
 -spec parse_krpc_arguments(
     ResponseDict    :: dict:dict(),
     TxId            :: tx_id()
-) ->     % @todo tests
+) ->
     {ok, ping, q, Hash :: binary(), TxId :: tx_id()} |
     {ok, find_node, q, {Hash :: binary(), Target :: binary()}, TxId :: tx_id()} |
     {ok, get_peers, q, {Hash :: binary(), InfoHash :: binary()}, TxId :: tx_id()} |

@@ -190,9 +190,14 @@ parse_response_dict_test_() ->
         },
         {"Parse get_peers in the response dict. Token is found. Peers are found.",
             fun() ->
+                Dict =  dict:store(
+                    <<"token">>,
+                    <<"t0k3n">>,
+                    dict:store(<<"values">>, {list, [<<"p33r5_1nf0">>]}, dict:new())
+                ),
                 ?assertEqual(
                     {peers, <<0,1>>, [#{ip => {12,34,92,155}, port => 6862}], <<"t0k3n">>},
-                    erline_dht_message:parse_response_dict(get_peers, <<0,1>>, dict:store(<<"token">>, <<"t0k3n">>, dict:store(<<"values">>, {list, [<<"p33r5_1nf0">>]}, dict:new())))
+                    erline_dht_message:parse_response_dict(get_peers, <<0,1>>, Dict)
                 ),
                 ?assertEqual(
                     1,
@@ -216,9 +221,14 @@ parse_response_dict_test_() ->
         },
         {"Parse get_peers in the response dict. Token is found. Nodes are found.",
             fun() ->
+                Dict = dict:store(
+                    <<"token">>,
+                    <<"t0k3n">>,
+                    dict:store(<<"nodes">>, <<"n0d35_1nf0">>, dict:new())
+                ),
                 ?assertEqual(
                     {nodes, <<0,1>>, [#{ip => {12,34,92,155}, port => 6862, hash => <<"n0d3_h45h">>}], <<"t0k3n">>},
-                    erline_dht_message:parse_response_dict(get_peers, <<0,1>>, dict:store(<<"token">>, <<"t0k3n">>, dict:store(<<"nodes">>, <<"n0d35_1nf0">>, dict:new())))
+                    erline_dht_message:parse_response_dict(get_peers, <<0,1>>, Dict)
                 ),
                 ?assertEqual(
                     1,
@@ -249,6 +259,129 @@ parse_response_dict_test_() ->
                 ?assertEqual(
                     <<"h45h">>,
                     erline_dht_message:parse_response_dict(announce_peer, <<0,1>>, dict:store(<<"id">>, <<"h45h">>, dict:new()))
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
+parse_krpc_arguments_test_() ->
+    MakeRequestFun = fun (Query, ArgsList) ->
+        Args = lists:foldl(fun ({Key, Val}, AccDict) ->
+            dict:store(Key, Val, AccDict)
+        end, dict:new(), ArgsList),
+        QueryResult = dict:store(
+            <<"a">>,
+            {dict, Args},
+            dict:store(<<"q">>, Query, dict:new())
+        ),
+        {QueryResult, Args}
+    end,
+    {setup,
+        fun() -> ok end,
+        fun(_) -> ok end,
+        [{"Parse KRPC ping. Success.",
+            fun() ->
+                {Result, _} = MakeRequestFun(<<"ping">>, [{<<"id">>, <<"h45h">>}]),
+                ?assertEqual(
+                    {ok, ping, q, <<"h45h">>, <<0,1>>},
+                    erline_dht_message:parse_krpc_arguments(Result, <<0,1>>)
+                )
+            end
+        },
+        {"Parse KRPC ping. Bad arguments.",
+            fun() ->
+                {Result, Args} = MakeRequestFun(<<"ping">>, []),
+                ?assertEqual(
+                    {error, {bad_args, Args, <<0,1>>}},
+                    erline_dht_message:parse_krpc_arguments(Result, <<0,1>>)
+                )
+            end
+        },
+        {"Parse KRPC find_node. Success.",
+            fun() ->
+                {Result, _} = MakeRequestFun(<<"find_node">>, [{<<"id">>, <<"h45h">>}, {<<"target">>, <<"t4rg3t">>}]),
+                ?assertEqual(
+                    {ok, find_node, q, {<<"h45h">>, <<"t4rg3t">>}, <<0,1>>},
+                    erline_dht_message:parse_krpc_arguments(Result, <<0,1>>)
+                )
+            end
+        },
+        {"Parse KRPC find_node. Bad arguments.",
+            fun() ->
+                {Result, Args} = MakeRequestFun(<<"find_node">>, [{<<"id">>, <<"h45h">>}]),
+                ?assertEqual(
+                    {error, {bad_args, Args, <<0,1>>}},
+                    erline_dht_message:parse_krpc_arguments(Result, <<0,1>>)
+                )
+            end
+        },
+        {"Parse KRPC get_peers. Success.",
+            fun() ->
+                {Result, _} = MakeRequestFun(<<"get_peers">>, [{<<"id">>, <<"h45h">>}, {<<"info_hash">>, <<"1nf0_h45h">>}]),
+                ?assertEqual(
+                    {ok, get_peers, q, {<<"h45h">>, <<"1nf0_h45h">>}, <<0,1>>},
+                    erline_dht_message:parse_krpc_arguments(Result, <<0,1>>)
+                )
+            end
+        },
+        {"Parse KRPC get_peers. Bad arguments.",
+            fun() ->
+                {Result, Args} = MakeRequestFun(<<"get_peers">>, [{<<"id">>, <<"h45h">>}]),
+                ?assertEqual(
+                    {error, {bad_args, Args, <<0,1>>}},
+                    erline_dht_message:parse_krpc_arguments(Result, <<0,1>>)
+                )
+            end
+        },
+        {"Parse KRPC announce_peer. Implied port is not found. Success.",
+            fun() ->
+                Params = [
+                    {<<"id">>,        <<"h45h">>},
+                    {<<"info_hash">>, <<"1nf0_h45h">>},
+                    {<<"port">>,      5632},
+                    {<<"token">>,     <<"t0k3n">>}
+                ],
+                {Result, _} = MakeRequestFun(<<"announce_peer">>, Params),
+                ?assertEqual(
+                    {ok, announce_peer, q, {<<"h45h">>, 0, <<"1nf0_h45h">>, 5632, <<"t0k3n">>}, <<0,1>>},
+                    erline_dht_message:parse_krpc_arguments(Result, <<0,1>>)
+                )
+            end
+        },
+        {"Parse KRPC announce_peer. Implied port is found. Success.",
+            fun() ->
+                Params = [
+                    {<<"id">>,           <<"h45h">>},
+                    {<<"info_hash">>,    <<"1nf0_h45h">>},
+                    {<<"port">>,         5632},
+                    {<<"token">>,        <<"t0k3n">>},
+                    {<<"implied_port">>, 1}
+                ],
+                {Result, _} = MakeRequestFun(<<"announce_peer">>, Params),
+                ?assertEqual(
+                    {ok, announce_peer, q, {<<"h45h">>, 1, <<"1nf0_h45h">>, 5632, <<"t0k3n">>}, <<0,1>>},
+                    erline_dht_message:parse_krpc_arguments(Result, <<0,1>>)
+                )
+            end
+        },
+        {"Parse KRPC announce_peer. Bad arguments.",
+            fun() ->
+                {Result, Args} = MakeRequestFun(<<"announce_peer">>, [{<<"id">>, <<"h45h">>}]),
+                ?assertEqual(
+                    {error, {bad_args, Args, <<0,1>>}},
+                    erline_dht_message:parse_krpc_arguments(Result, <<0,1>>)
+                )
+            end
+        },
+        {"KRPC request parsing is unsucessful.",
+            fun() ->
+                ?assertEqual(
+                    {error, {bad_query, dict:store(<<"q">>, <<"ping">>, dict:new()), <<0,1>>}},
+                    erline_dht_message:parse_krpc_arguments(dict:store(<<"q">>, <<"ping">>, dict:new()), <<0,1>>)
                 )
             end
         }]
