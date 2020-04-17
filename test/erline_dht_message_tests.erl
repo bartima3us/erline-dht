@@ -141,3 +141,117 @@ do_error_response_test_() ->
     }.
 
 
+%%
+%%
+%%
+parse_response_dict_test_() ->
+    {setup,
+        fun() ->
+            ok = meck:new(erline_dht_helper),
+            ok = meck:expect(erline_dht_helper, decode_compact_node_info, [<<"n0d35_1nf0">>], [#{ip => {12,34,92,155}, port => 6862, hash => <<"n0d3_h45h">>}]),
+            ok = meck:expect(erline_dht_helper, decode_peer_info, [[<<"p33r5_1nf0">>]], [#{ip => {12,34,92,155}, port => 6862}])
+        end,
+        fun(_) ->
+            true = meck:validate(erline_dht_helper),
+            ok = meck:unload(erline_dht_helper)
+        end,
+        [{"Parse ping in the response dict.",
+            fun() ->
+                ?assertEqual(
+                    <<"h45h">>,
+                    erline_dht_message:parse_response_dict(ping, <<0,1>>, dict:store(<<"id">>, <<"h45h">>, dict:new()))
+                )
+            end
+        },
+        {"Parse find_node in the response dict. Nodes are found.",
+            fun() ->
+                ?assertEqual(
+                    [#{ip => {12,34,92,155}, port => 6862, hash => <<"n0d3_h45h">>}],
+                    erline_dht_message:parse_response_dict(find_node, <<0,1>>, dict:store(<<"nodes">>, <<"n0d35_1nf0">>, dict:new()))
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, decode_compact_node_info, [<<"n0d35_1nf0">>])
+                ),
+                ok = meck:reset(erline_dht_helper)
+            end
+        },
+        {"Parse find_node in the response dict. Nodes are not found.",
+            fun() ->
+                ?assertEqual(
+                    [],
+                    erline_dht_message:parse_response_dict(find_node, <<0,1>>, dict:new())
+                ),
+                ?assertEqual(
+                    0,
+                    meck:num_calls(erline_dht_helper, decode_compact_node_info, ['_'])
+                )
+            end
+        },
+        {"Parse get_peers in the response dict. Token is found. Peers are found.",
+            fun() ->
+                ?assertEqual(
+                    {peers, <<0,1>>, [#{ip => {12,34,92,155}, port => 6862}], <<"t0k3n">>},
+                    erline_dht_message:parse_response_dict(get_peers, <<0,1>>, dict:store(<<"token">>, <<"t0k3n">>, dict:store(<<"values">>, {list, [<<"p33r5_1nf0">>]}, dict:new())))
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, decode_peer_info, [[<<"p33r5_1nf0">>]])
+                ),
+                ok = meck:reset(erline_dht_helper)
+            end
+        },
+        {"Parse get_peers in the response dict. Token is not found. Peers are found.",
+            fun() ->
+                ?assertEqual(
+                    {peers, <<0,1>>, [#{ip => {12,34,92,155}, port => 6862}], <<>>},
+                    erline_dht_message:parse_response_dict(get_peers, <<0,1>>, dict:store(<<"values">>, {list, [<<"p33r5_1nf0">>]}, dict:new()))
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, decode_peer_info, [[<<"p33r5_1nf0">>]])
+                ),
+                ok = meck:reset(erline_dht_helper)
+            end
+        },
+        {"Parse get_peers in the response dict. Token is found. Nodes are found.",
+            fun() ->
+                ?assertEqual(
+                    {nodes, <<0,1>>, [#{ip => {12,34,92,155}, port => 6862, hash => <<"n0d3_h45h">>}], <<"t0k3n">>},
+                    erline_dht_message:parse_response_dict(get_peers, <<0,1>>, dict:store(<<"token">>, <<"t0k3n">>, dict:store(<<"nodes">>, <<"n0d35_1nf0">>, dict:new())))
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, decode_compact_node_info, [<<"n0d35_1nf0">>])
+                ),
+                ok = meck:reset(erline_dht_helper)
+            end
+        },
+        {"Parse get_peers in the response dict. Token is not found. Peers are not found. Nodes are not found.",
+            fun() ->
+                ?assertEqual(
+                    {nodes, <<0,1>>, [], <<>>},
+                    erline_dht_message:parse_response_dict(get_peers, <<0,1>>, dict:new())
+                ),
+                ?assertEqual(
+                    0,
+                    meck:num_calls(erline_dht_helper, decode_compact_node_info, ['_'])
+                ),
+                ?assertEqual(
+                    0,
+                    meck:num_calls(erline_dht_helper, decode_peer_info, ['_'])
+                ),
+                ok = meck:reset(erline_dht_helper)
+            end
+        },
+        {"Parse announce_peer in the response dict.",
+            fun() ->
+                ?assertEqual(
+                    <<"h45h">>,
+                    erline_dht_message:parse_response_dict(announce_peer, <<0,1>>, dict:store(<<"id">>, <<"h45h">>, dict:new()))
+                )
+            end
+        }]
+    }.
+
+

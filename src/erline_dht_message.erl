@@ -31,7 +31,8 @@
     get_peers_response/4,
     announce_peer_request/6,
     announce_peer_response/2,
-    error_response/3
+    error_response/3,
+    parse_response_dict/3
 ]).
 -endif.
 
@@ -420,7 +421,6 @@ error_response(TxId, ErrorCode, ErrorDescription) when
 %%  Parse response dict (by KRPC type "r").
 %%  @end
 -spec parse_response_dict
-    % @todo tests
     (
         Type    :: ping,
         TxId    :: tx_id(),
