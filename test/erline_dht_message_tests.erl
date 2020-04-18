@@ -388,3 +388,70 @@ parse_krpc_arguments_test_() ->
     }.
 
 
+%%
+%%
+%%
+parse_krpc_response_test_() ->
+    ActiveTxs = [{find_node, <<0,1>>}, {ping, <<"aa">>}],
+    {setup,
+        fun() -> ok end,
+        fun(_) -> ok end,
+        [{"Parse KRPC response. Received query.",
+            fun() ->
+                ?assertEqual(
+                    {ok, ping, q, <<"abcdefghij0123456789">>, <<"aa">>},
+                    erline_dht_message:parse_krpc_response(<<"d1:ad2:id20:abcdefghij0123456789e1:q4:ping1:t2:aa1:y1:qe">>, ActiveTxs)
+                )
+            end
+        },
+        {"Parse KRPC response. Received normal response.",
+            fun() ->
+                ?assertEqual(
+                    {ok, ping, r, <<"mnopqrstuvwxyz123456">>, [{find_node,<<0,1>>}]},
+                    erline_dht_message:parse_krpc_response(<<"d1:rd2:id20:mnopqrstuvwxyz123456e1:t2:aa1:y1:re">>, ActiveTxs)
+                )
+            end
+        },
+        {"Parse KRPC response. Received error response.",
+            fun() ->
+                ?assertEqual(
+                    {error, {krpc_error, 201, <<"A Generic Error Ocurred">>}, [{find_node,<<0,1>>}]},
+                    erline_dht_message:parse_krpc_response(<<"d1:eli201e23:A Generic Error Ocurrede1:t2:aa1:y1:ee">>, ActiveTxs)
+                )
+            end
+        },
+        {"Parse KRPC response. Received response with bad type.",
+            fun() ->
+                ?assertEqual(
+                    {error, {bad_type,<<"k">>}, [{find_node,<<0,1>>}]},
+                    erline_dht_message:parse_krpc_response(<<"d1:rd2:id20:mnopqrstuvwxyz123456e1:t2:aa1:y1:ke">>, ActiveTxs)
+                )
+            end
+        },
+        {"Parse KRPC response. Received normal response with non existing tx.",
+            fun() ->
+                ?assertEqual(
+                    {error, {non_existing_tx, <<"ab">>}},
+                    erline_dht_message:parse_krpc_response(<<"d1:rd2:id20:mnopqrstuvwxyz123456e1:t2:ab1:y1:re">>, ActiveTxs)
+                )
+            end
+        },
+        {"Parse KRPC response. Bad response.",
+            fun() ->
+                ?assertEqual(
+                    {error, {bad_response, dict:store(<<"y">>, <<"ping">>, dict:new())}},
+                    erline_dht_message:parse_krpc_response(<<"d1:y4:pinge">>, ActiveTxs)
+                )
+            end
+        },
+        {"Parse KRPC response. Malformed bencoded string.",
+            fun() ->
+                ?assertEqual(
+                    {error, {bad_response, <<"b4d_r35p0n53">>}},
+                    erline_dht_message:parse_krpc_response(<<"b4d_r35p0n53">>, ActiveTxs)
+                )
+            end
+        }]
+    }.
+
+

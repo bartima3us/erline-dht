@@ -1394,9 +1394,9 @@ clear_not_assigned_nodes(Distance, #state{db_mod = DbMod, not_assigned_clearing_
 get_my_node_hash() ->
     case erline_dht:get_env(node_hash, 20) of
         HashOpt when is_integer(HashOpt) ->
+            % Peer ID Conventions: http://www.bittorrent.org/beps/bep_0020.html
             {_, _, Vsn} = lists:keyfind(?APP, 1, application:loaded_applications()),
             FormattedVsn = re:replace(Vsn, "\\.", "-", [global, {return, binary}]),
-            % Peer ID Conventions: http://www.bittorrent.org/beps/bep_0020.html
             RandomPart = erline_dht_helper:generate_random_binary(HashOpt - (erlang:byte_size(FormattedVsn) + 1)),
             <<"M", FormattedVsn/binary, RandomPart/binary>>;
         HashOpt when is_binary(HashOpt) ->
