@@ -123,36 +123,57 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 
-%%
-%%
-%%
+%%  @doc
+%%  Add node with unknown hash to the bucket.
+%%  @end
+-spec add_node(
+    Ip      :: inet:ip_address(),
+    Port    :: inet:port_number()
+) -> ok.
+
 add_node(Ip, Port) ->
     gen_server:cast(?SERVER, {add_node, Ip, Port, undefined}).
 
 
-%%
-%%
-%%
+%%  @doc
+%%  Add node with known hash to the bucket.
+%%  @end
+-spec add_node(
+    Ip      :: inet:ip_address(),
+    Port    :: inet:port_number(),
+    Hash    :: binary()
+) -> ok.
+
 add_node(Ip, Port, Hash) ->
     gen_server:cast(?SERVER, {add_node, Ip, Port, Hash}).
 
 
-%%
-%%
-%%
+%%  @doc
+%%  Try to find peers for the info hash in the network.
+%%  @end
+-spec get_peers(
+    InfoHash :: binary()
+) -> ok.
+
 get_peers(InfoHash) ->
     gen_server:cast(?SERVER, {get_peers, undefined, undefined, InfoHash}).
 
 
-%%
-%%
-%%
+%%  @doc
+%%  Try to get peers for the info hash from one node.
+%%  @end
+-spec get_peers(
+    Ip       :: inet:ip_address(),
+    Port     :: inet:port_number(),
+    InfoHash :: binary()
+) -> ok.
+
 get_peers(Ip, Port, InfoHash) ->
     gen_server:cast(?SERVER, {get_peers, Ip, Port, InfoHash}).
 
 
 %%  @doc
-%%  Returns UDP port of the client.
+%%  Return UDP socket port of the client.
 %%  @end
 -spec get_port() -> Port :: inet:port_number().
 
@@ -161,7 +182,7 @@ get_port() ->
 
 
 %%  @doc
-%%  Returns event manager pid.
+%%  Return event manager pid.
 %%  @end
 -spec get_event_mgr_pid() -> EventMgrPid :: pid().
 
@@ -169,30 +190,53 @@ get_event_mgr_pid() ->
     gen_server:call(?SERVER, get_event_mgr_pid).
 
 
-%%
-%%
-%%
+%%  @doc
+%%  Return all nodes information.
+%%  @end
+-spec get_all_nodes_in_bucket(
+    Distance :: distance()
+) -> [#{ip              => inet:ip_address(),
+        port            => inet:port_number(),
+        hash            => binary(),
+        status          => status(),
+        last_changed    => calendar:datetime()}].
+
 get_all_nodes_in_bucket(Distance) ->
     gen_server:call(?SERVER, {get_all_nodes_in_bucket, Distance}).
 
 
-%%
-%%
-%%
+%%  @doc
+%%  Return not assigned nodes information.
+%%  @end
+-spec get_not_assigned_nodes() -> 
+    [#{ip              => inet:ip_address(),
+       port            => inet:port_number(),
+       hash            => binary(),
+       last_changed    => calendar:datetime()}].
+
 get_not_assigned_nodes() ->
     gen_server:call(?SERVER, {get_not_assigned_nodes, undefined}, ?GET_NOT_ASSIGNED_NODES_CALL_TIMEOUT).
 
 
-%%
-%%
-%%
+%%  @doc
+%%  Return not assigned nodes information.
+%%  @end
+-spec get_not_assigned_nodes(
+    Distance :: distance()
+) -> [#{ip              => inet:ip_address(),
+        port            => inet:port_number(),
+        hash            => binary(),
+        last_changed    => calendar:datetime()}].
+
 get_not_assigned_nodes(Distance) ->
     gen_server:call(?SERVER, {get_not_assigned_nodes, Distance}, ?GET_NOT_ASSIGNED_NODES_CALL_TIMEOUT).
 
 
-%%
-%%
-%%
+%%  @doc
+%%  Return amount of nodes in every bucket.
+%%  @end
+-spec get_buckets_filling() -> [#{distance => distance(), nodes => non_neg_integer()}].
+
 get_buckets_filling() ->
     gen_server:call(?SERVER, get_buckets_filling).
 

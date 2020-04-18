@@ -516,10 +516,10 @@ parse_response_dict(announce_peer, _TxId, Resp) ->
     ResponseDict    :: dict:dict(),
     TxId            :: tx_id()
 ) ->
-    {ok, ping, q, Hash :: binary(), TxId :: tx_id()} |
-    {ok, find_node, q, {Hash :: binary(), Target :: binary()}, TxId :: tx_id()} |
-    {ok, get_peers, q, {Hash :: binary(), InfoHash :: binary()}, TxId :: tx_id()} |
-    {ok, announce_peer, q, {Hash :: binary(), ImpliedPort :: 0 | 1, InfoHash :: binary(), Port :: inet:port_number(), Token :: binary()}, TxId :: tx_id()} |
+    {ok, ping, q, NodeHash :: binary(), TxId :: tx_id()} |
+    {ok, find_node, q, {NodeHash :: binary(), Target :: binary()}, TxId :: tx_id()} |
+    {ok, get_peers, q, {NodeHash :: binary(), InfoHash :: binary()}, TxId :: tx_id()} |
+    {ok, announce_peer, q, {NodeHash :: binary(), ImpliedPort :: 0 | 1, InfoHash :: binary(), Port :: inet:port_number(), Token :: binary()}, TxId :: tx_id()} |
     {error, {bad_args, Args :: term(), TxId :: tx_id()}} |
     {error, {bad_query, Response :: term(), TxId :: tx_id()}}.
 
@@ -550,8 +550,8 @@ parse_krpc_arguments(ResponseDict, TxId) ->
                   dict:find(<<"port">>, Args),
                   dict:find(<<"token">>, Args)}
             of
-                {{ok, Hash}, {ok, InfoHash}, {ok, Port}, {ok, Token}} ->
-                    {ok, announce_peer, q, {Hash, ImpliedPort, InfoHash, Port, Token}, TxId};
+                {{ok, NodeHash}, {ok, InfoHash}, {ok, Port}, {ok, Token}} ->
+                    {ok, announce_peer, q, {NodeHash, ImpliedPort, InfoHash, Port, Token}, TxId};
                 _ ->
                     {error, {bad_args, Args, TxId}}
             end;
