@@ -464,17 +464,14 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         % Handle get_peers response
         {ok, get_peers, r, GetPeersResp, NewActiveTx} ->
             handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, State);
-        % @todo implement
-        % @todo if token is bad, respond with 203 Protocol Error, such as a malformed packet, invalid arguments, or bad token
+        %
         % Handle announce_peer query
         {ok, announce_peer, q, {NodeHash, ImpliedPort, InfoHash, PeerPort, ReceivedToken}, ReceivedTxId} ->
-            ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, q, Ip, Port, {NodeHash, ImpliedPort, InfoHash, PeerPort, ReceivedToken}}),
-            State;
-        % @todo implement
+            handle_announce_peer_query(Ip, Port, NodeHash, ImpliedPort, InfoHash, PeerPort, ReceivedToken, ReceivedTxId, State);
+        %
         % Handle announce_peer response
         {ok, announce_peer, r, NodeHash, NewActiveTx} ->
-            ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, r, Ip, Port, NodeHash}),
-            State;
+            handle_announce_peer_response(Ip, Port, NodeHash, NewActiveTx, Bucket, State);
         %
         % Handle errors
         {error, {krpc_error, ErrorCode, ErrorReason}, NewActiveTx} ->
@@ -621,50 +618,10 @@ handle_ping_query(Ip, Port, NodeHash, ReceivedTxId, State) ->
 
 handle_ping_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State) ->
     #state{
-        event_mgr_pid = EventMgrPid,
-        my_node_hash  = MyNodeHash
+        event_mgr_pid = EventMgrPid
     } = State,
     ok = erline_dht_helper:notify(EventMgrPid, {ping, r, Ip, Port, NewNodeHash}),
-    case erline_dht_helper:get_distance(MyNodeHash, NewNodeHash) of
-        {ok, NewDist} ->
-            Params = [
-                {hash,          NewNodeHash},
-                {last_changed,  erline_dht_helper:local_time()},
-                {status,        active}
-            ],
-            case Bucket of
-                % Node is already assigned to the bucket
-                #bucket{distance = CurrDist} ->
-                    case CurrDist =:= NewDist of
-                        % If hash is the same, update node data
-                        true ->
-                            update_node(Ip, Port, Params ++ [{active_txs, NewActiveTx}], State);
-                         % If hash is changed, move node to another bucket
-                        false ->
-                            case maybe_clear_bucket(NewDist, State) of
-                                {true, NewState0}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}, {active_txs, NewActiveTx}], NewState0);
-                                {false, NewState0} -> update_node(Ip, Port, Params ++ [unassign, {active_txs, NewActiveTx}], NewState0)
-                            end
-                    end;
-                % Not assigned to the bucket
-                false ->
-                    NewState0 = update_node(Ip, Port, [{active_txs, NewActiveTx}], State),
-                    {ok, NewState1} = do_find_node_async(Ip, Port, MyNodeHash, NewState0),
-                    case maybe_clear_bucket(NewDist, NewState1) of
-                        {true, NewState2}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState2);
-                        % No free space in the bucket.
-                        {false, NewState2} -> update_node(Ip, Port, Params, NewState2)
-                    end
-            end;
-        {error, _Reason} ->
-            Params = [
-                {hash,         NewNodeHash},
-                {last_changed, erline_dht_helper:local_time()},
-                {status,       not_active},
-                {active_txs,   NewActiveTx}
-            ],
-            update_node(Ip, Port, Params, State)
-    end.
+    handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State).
 
 
 %%  @private
@@ -825,6 +782,66 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, State) ->
     update_node(Ip, Port, Params, NewState0).
 
 
+%%  @private
+%%  @doc
+%%  Handle announce_peer query from socket.
+%%  @end
+-spec handle_announce_peer_query(
+    Ip              :: inet:ip_address(),
+    Port            :: inet:port_number(),
+    NodeHash        :: binary(),
+    ImpliedPort     :: 0 | 1,
+    InfoHash        :: binary(),
+    PeerPort        :: inet:port_number(),
+    ReceivedToken   :: binary(),
+    ReceivedTxId    :: tx_id(),
+    State           :: #state{}
+) -> NewState :: #state{}.
+
+handle_announce_peer_query(Ip, Port, NodeHash, ImpliedPort, InfoHash, PeerPort, ReceivedToken, ReceivedTxId, State) ->
+    #state{
+        socket        = Socket,
+        my_node_hash  = MyNodeHash,
+        event_mgr_pid = EventMgrPid,
+        valid_tokens  = ValidTokens
+    } = State,
+    ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, q, Ip, Port, {ImpliedPort, InfoHash, PeerPort, ReceivedToken}}),
+    NewState0 = case lists:member(ReceivedToken, ValidTokens) of
+        true  ->
+            erline_dht_message:respond_announce_peer(Ip, Port, Socket, ReceivedTxId, MyNodeHash),
+            add_peer(InfoHash, Ip, Port, State);
+        false ->
+            erline_dht_message:respond_error(Socket, Ip, Port, ReceivedTxId, 203, <<"Bad Token">>),
+            State
+    end,
+    ok = add_node(Ip, Port, NodeHash),
+    case get_bucket_and_node(Ip, Port, NewState0) of
+        {ok, Bucket, Node} -> update_node(Bucket, Node, [{last_changed, erline_dht_helper:local_time()}], NewState0);
+        false              -> NewState0
+    end.
+
+
+%%  @private
+%%  @doc
+%%  Handle ping response from socket.
+%%  @end
+-spec handle_announce_peer_response(
+    Ip          :: inet:ip_address(),
+    Port        :: inet:port_number(),
+    NewNodeHash :: binary(),
+    NewActiveTx :: [active_tx()],
+    Bucket      :: #bucket{} | false,
+    State       :: #state{}
+) -> NewState :: #state{}.
+
+handle_announce_peer_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State) ->
+    #state{
+        event_mgr_pid = EventMgrPid
+    } = State,
+    ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, r, Ip, Port, NewNodeHash}),
+    handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State).
+
+
 %%%===================================================================
 %%% Request functions
 %%%===================================================================
@@ -915,6 +932,63 @@ do_get_peers_async(Bucket, Node = #node{ip_port = {Ip, Port}}, InfoHash, State =
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+
+%%  @private
+%%  @doc
+%%  Generic handle function for ping and announce_peer responses.
+%%  @end
+-spec handle_response_generic(
+    Ip          :: inet:ip_address(),
+    Port        :: inet:port_number(),
+    NewNodeHash :: binary(),
+    NewActiveTx :: [active_tx()],
+    Bucket      :: #bucket{} | false,
+    State       :: #state{}
+) -> NewState :: #state{}.
+
+handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State = #state{my_node_hash  = MyNodeHash}) ->
+    case erline_dht_helper:get_distance(MyNodeHash, NewNodeHash) of
+        {ok, NewDist} ->
+            Params = [
+                {hash,          NewNodeHash},
+                {last_changed,  erline_dht_helper:local_time()},
+                {status,        active}
+            ],
+            case Bucket of
+                % Node is already assigned to the bucket
+                #bucket{distance = CurrDist} ->
+                    case CurrDist =:= NewDist of
+                        % If hash is the same, update node data
+                        true ->
+                            update_node(Ip, Port, Params ++ [{active_txs, NewActiveTx}], State);
+                         % If hash is changed, move node to another bucket
+                        false ->
+                            case maybe_clear_bucket(NewDist, State) of
+                                {true, NewState0}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}, {active_txs, NewActiveTx}], NewState0);
+                                {false, NewState0} -> update_node(Ip, Port, Params ++ [unassign, {active_txs, NewActiveTx}], NewState0)
+                            end
+                    end;
+                % Not assigned to the bucket
+                false ->
+                    NewState0 = update_node(Ip, Port, [{active_txs, NewActiveTx}], State),
+                    {ok, NewState1} = do_find_node_async(Ip, Port, MyNodeHash, NewState0),
+                    case maybe_clear_bucket(NewDist, NewState1) of
+                        {true, NewState2}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState2);
+                        % No free space in the bucket.
+                        {false, NewState2} -> update_node(Ip, Port, Params, NewState2)
+                    end
+            end;
+        {error, _Reason} ->
+            Params = [
+                {hash,         NewNodeHash},
+                {last_changed, erline_dht_helper:local_time()},
+                {status,       not_active},
+                {active_txs,   NewActiveTx}
+            ],
+            update_node(Ip, Port, Params, State)
+    end.
+
 
 %%  @private
 %%  @doc
@@ -1008,8 +1082,8 @@ update_node(Bucket, Node = #node{ip_port = {Ip, Port}}, Params, State = #state{}
             update_tx_id(AccNode);
         ({status, Status}, AccNode) ->
             AccNode#node{status = Status};
-        ({assign, _Dist}, AccNode) ->
-            AccNode;
+        ({assign, Distance}, AccNode) ->
+            AccNode#node{distance = Distance};
         (unassign, AccNode) ->
             AccNode
     end, Node, Params),

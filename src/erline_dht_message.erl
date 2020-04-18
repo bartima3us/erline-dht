@@ -17,6 +17,7 @@
     respond_find_node/6,
     send_get_peers/6,
     respond_get_peers/7,
+    respond_announce_peer/5,
     respond_error/6,
     parse_krpc_response/2
 ]).
@@ -57,11 +58,11 @@
     Port        :: inet:port_number(),
     Socket      :: port(),
     TxId        :: tx_id(),
-    MyNodeId    :: binary()
+    MyNodeHash  :: binary()
 ) -> ok.
 
-send_ping(Ip, Port, Socket, TxId, MyNodeId) ->
-    Payload = ping_request(TxId, MyNodeId),
+send_ping(Ip, Port, Socket, TxId, MyNodeHash) ->
+    Payload = ping_request(TxId, MyNodeHash),
     ok = socket_send(Socket, Ip, Port, Payload).
 
 
@@ -73,11 +74,11 @@ send_ping(Ip, Port, Socket, TxId, MyNodeId) ->
     Port        :: inet:port_number(),
     Socket      :: port(),
     TxId        :: tx_id(),
-    MyNodeId    :: binary()
+    MyNodeHash  :: binary()
 ) -> ok.
 
-respond_ping(Ip, Port, Socket, TxId, MyNodeId) ->
-    Payload = ping_response(TxId, MyNodeId),
+respond_ping(Ip, Port, Socket, TxId, MyNodeHash) ->
+    Payload = ping_response(TxId, MyNodeHash),
     ok = socket_send(Socket, Ip, Port, Payload).
 
 
@@ -89,12 +90,12 @@ respond_ping(Ip, Port, Socket, TxId, MyNodeId) ->
     Port            :: inet:port_number(),
     Socket          :: port(),
     TxId            :: tx_id(),
-    MyNodeId        :: binary(),
+    MyNodeHash      :: binary(),
     TargetNodeId    :: binary()
 ) -> ok.
 
-send_find_node(Ip, Port, Socket, TxId, MyNodeId, TargetNodeId) ->
-    Payload = find_node_request(TxId, MyNodeId, TargetNodeId),
+send_find_node(Ip, Port, Socket, TxId, MyNodeHash, TargetNodeId) ->
+    Payload = find_node_request(TxId, MyNodeHash, TargetNodeId),
     ok = socket_send(Socket, Ip, Port, Payload).
 
 
@@ -106,12 +107,12 @@ send_find_node(Ip, Port, Socket, TxId, MyNodeId, TargetNodeId) ->
     Port        :: inet:port_number(),
     Socket      :: port(),
     TxId        :: tx_id(),
-    MyNodeId    :: binary(),
+    MyNodeHash  :: binary(),
     Nodes       :: binary()
 ) -> ok.
 
-respond_find_node(Ip, Port, Socket, TxId, MyNodeId, Nodes) ->
-    Payload = find_node_response(TxId, MyNodeId, Nodes),
+respond_find_node(Ip, Port, Socket, TxId, MyNodeHash, Nodes) ->
+    Payload = find_node_response(TxId, MyNodeHash, Nodes),
     ok = socket_send(Socket, Ip, Port, Payload).
 
 
@@ -123,12 +124,12 @@ respond_find_node(Ip, Port, Socket, TxId, MyNodeId, Nodes) ->
     Port            :: inet:port_number(),
     Socket          :: port(),
     TxId            :: tx_id(),
-    MyNodeId        :: binary(),
+    MyNodeHash      :: binary(),
     TargetNodeId    :: binary()
 ) -> ok.
 
-send_get_peers(Ip, Port, Socket, TxId, MyNodeId, InfoHash) ->
-    Payload = get_peers_request(TxId, MyNodeId, InfoHash),
+send_get_peers(Ip, Port, Socket, TxId, MyNodeHash, InfoHash) ->
+    Payload = get_peers_request(TxId, MyNodeHash, InfoHash),
     ok = socket_send(Socket, Ip, Port, Payload).
 
 
@@ -140,13 +141,29 @@ send_get_peers(Ip, Port, Socket, TxId, MyNodeId, InfoHash) ->
     Port            :: inet:port_number(),
     Socket          :: port(),
     TxId            :: tx_id(),
-    MyNodeId        :: binary(),
+    MyNodeHash      :: binary(),
     Token           :: binary(),
     NodesOrPeers    :: binary() | [binary()]
 ) -> ok.
 
-respond_get_peers(Ip, Port, Socket, TxId, MyNodeId, Token, NodesOrPeers) ->
-    Payload = get_peers_response(TxId, MyNodeId, Token, NodesOrPeers),
+respond_get_peers(Ip, Port, Socket, TxId, MyNodeHash, Token, NodesOrPeers) ->
+    Payload = get_peers_response(TxId, MyNodeHash, Token, NodesOrPeers),
+    ok = socket_send(Socket, Ip, Port, Payload).
+
+
+%%  @doc
+%%  Create `announce_peer` response and send it.
+%%  @end
+-spec respond_announce_peer(
+    Ip          :: inet:ip_address(),
+    Port        :: inet:port_number(),
+    Socket      :: port(),
+    TxId        :: tx_id(),
+    MyNodeHash  :: binary()
+) -> ok.
+
+respond_announce_peer(Ip, Port, Socket, TxId, MyNodeHash) ->
+    Payload = announce_peer_response(TxId, MyNodeHash),
     ok = socket_send(Socket, Ip, Port, Payload).
 
 
