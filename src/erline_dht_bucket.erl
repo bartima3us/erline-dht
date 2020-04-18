@@ -42,9 +42,9 @@
     handle_ping_query/5,
     handle_ping_response/6,
     handle_find_node_query/6,
-    handle_find_node_response/5,
+    handle_find_node_response/7,
     handle_get_peers_query/6,
-    handle_get_peers_response/5,
+    handle_get_peers_response/6,
     do_ping_async/3,
     do_find_node_async/4,
     do_get_peers_async/4,
@@ -454,8 +454,8 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
             handle_find_node_query(Ip, Port, NodeHash, Target, ReceivedTxId, State);
         %
         % Handle find_node response
-        {ok, find_node, r, Nodes, NewActiveTx} ->
-            handle_find_node_response(Ip, Port, Nodes, NewActiveTx, State);
+        {ok, find_node, r, {NewNodeHash, Nodes}, NewActiveTx} ->
+            handle_find_node_response(Ip, Port, NewNodeHash, Nodes, NewActiveTx, Bucket, State);
         %
         % Handle get_peers query
         {ok, get_peers, q, {NodeHash, InfoHash}, ReceivedTxId} ->
@@ -463,7 +463,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         %
         % Handle get_peers response
         {ok, get_peers, r, GetPeersResp, NewActiveTx} ->
-            handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, State);
+            handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State);
         %
         % Handle announce_peer query
         {ok, announce_peer, q, {NodeHash, ImpliedPort, InfoHash, PeerPort, ReceivedToken}, ReceivedTxId} ->
@@ -662,12 +662,14 @@ handle_find_node_query(Ip, Port, NodeHash, Target, ReceivedTxId, State) ->
 -spec handle_find_node_response(
     Ip          :: inet:ip_address(),
     Port        :: inet:port_number(),
+    NewNodeHash :: binary(),
     Nodes       :: [parsed_compact_node_info()],
     NewActiveTx :: [active_tx()],
+    Bucket      :: binary(),
     State       :: #state{}
 ) -> NewState :: #state{}.
 
-handle_find_node_response(Ip, Port, Nodes, NewActiveTx, State) ->
+handle_find_node_response(Ip, Port, NewNodeHash, Nodes, NewActiveTx, Bucket, State) ->
     #state{
         event_mgr_pid = EventMgrPid
     } = State,
@@ -676,11 +678,7 @@ handle_find_node_response(Ip, Port, Nodes, NewActiveTx, State) ->
         % Can't assume that node we got is live so we need to ping it.
         ok = add_node(FoundIp, FoundPort, FoundedHash)
     end, Nodes),
-    Params = [
-        {last_changed, erline_dht_helper:local_time()},
-        {active_txs,   NewActiveTx}
-    ],
-    update_node(Ip, Port, Params, State).
+    handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State).
 
 
 %%  @private
@@ -733,18 +731,19 @@ handle_get_peers_query(Ip, Port, NodeHash, InfoHash, ReceivedTxId, State) ->
                         NodesOrPeers :: [parsed_compact_node_info() | parsed_peer_info()],
                         Token        :: binary()},
     NewActiveTx     :: [active_tx()],
+    Bucket          :: #bucket{} | false,
     State           :: #state{}
 ) -> NewState :: #state{}.
 
-handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, State) ->
-    {What, TxId, NodesOrPeers, Token} = GetPeersResp,
+handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
+    {What, NewNodeHash, TxId, NodesOrPeers, Token} = GetPeersResp,
     #state{
         event_mgr_pid = EventMgrPid,
         db_mod        = DbMod
     } = State,
     NewState0 = case DbMod:get_info_hash(Ip, Port, TxId) of
         false ->
-            ok = add_node(Ip, Port),
+            % Responded with info hash which we do not have in a search state
             State;
         InfoHash ->
             % Update last_changed
@@ -774,19 +773,15 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, State) ->
                     end, State, NodesOrPeers)
             end
     end,
-    Params = [
-        {token_received, Token},
-        {last_changed,   erline_dht_helper:local_time()},
-        {active_txs,     NewActiveTx}
-    ],
-    update_node(Ip, Port, Params, NewState0).
+    NewState1 = update_node(Ip, Port, [{token_received, Token}], NewState0),
+    handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, NewState1).
 
 
 %%  @private
 %%  @doc
 %%  Handle announce_peer query from socket.
 %%  @end
--spec handle_announce_peer_query(
+-spec handle_announce_peer_query(  % @todo tests
     Ip              :: inet:ip_address(),
     Port            :: inet:port_number(),
     NodeHash        :: binary(),
@@ -823,9 +818,9 @@ handle_announce_peer_query(Ip, Port, NodeHash, ImpliedPort, InfoHash, PeerPort, 
 
 %%  @private
 %%  @doc
-%%  Handle ping response from socket.
+%%  Handle announce_peer response from socket.
 %%  @end
--spec handle_announce_peer_response(
+-spec handle_announce_peer_response(  % @todo tests
     Ip          :: inet:ip_address(),
     Port        :: inet:port_number(),
     NewNodeHash :: binary(),
@@ -936,9 +931,9 @@ do_get_peers_async(Bucket, Node = #node{ip_port = {Ip, Port}}, InfoHash, State =
 
 %%  @private
 %%  @doc
-%%  Generic handle function for ping and announce_peer responses.
+%%  Generic node and bucket update function for all responses.
 %%  @end
--spec handle_response_generic(
+-spec handle_response_generic(  % @todo tests
     Ip          :: inet:ip_address(),
     Port        :: inet:port_number(),
     NewNodeHash :: binary(),
@@ -972,6 +967,7 @@ handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State = #sta
                 % Not assigned to the bucket
                 false ->
                     NewState0 = update_node(Ip, Port, [{active_txs, NewActiveTx}], State),
+                    % Actually relevant for ping only
                     {ok, NewState1} = do_find_node_async(Ip, Port, MyNodeHash, NewState0),
                     case maybe_clear_bucket(NewDist, NewState1) of
                         {true, NewState2}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState2);

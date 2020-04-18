@@ -27,10 +27,10 @@ Derivative project from https://github.com/bartima3us/erl-bittorrent
 * ```{ping, q, Ip :: inet:ip_address(), Port :: inet:port_number(), NodeHash :: binary()}```
 * ```{ping, r, Ip :: inet:ip_address(), Port :: inet:port_number(), NodeHash :: binary()}```
 * ```{find_node, q, Ip :: inet:ip_address(), Port :: inet:port_number(), {NodeHash :: binary(), Target :: binary()}}```
-* ```{find_node, r, Ip :: inet:ip_address(), Port :: inet:port_number(), Nodes :: [#{ip => inet:ip_address(), port => inet:port_number(), hash => binary()}]}```
+* ```{find_node, r, Ip :: inet:ip_address(), Port :: inet:port_number(), {NodeHash :: binary(), Nodes :: [#{ip => inet:ip_address(), port => inet:port_number(), hash => binary()}]}}```
 * ```{get_peers, q, Ip :: inet:ip_address(), Port :: inet:port_number(), {NodeHash :: binary(), InfoHash :: binary()}```
-* ```{get_peers, r, Ip :: inet:ip_address(), Port :: inet:port_number(), {nodes, InfoHash :: binary(), Nodes :: [#{ip => inet:ip_address(), port => inet:port_number(), hash => binary()}]}}```
-* ```{get_peers, r, Ip :: inet:ip_address(), Port :: inet:port_number(), {peers, InfoHash :: binary(), Peers :: [#{ip => inet:ip_address(), port => inet:port_number()}]}}```
+* ```{get_peers, r, Ip :: inet:ip_address(), Port :: inet:port_number(), {nodes, NodeHash :: binary(), InfoHash :: binary(), Nodes :: [#{ip => inet:ip_address(), port => inet:port_number(), hash => binary()}]}}```
+* ```{get_peers, r, Ip :: inet:ip_address(), Port :: inet:port_number(), {peers, NodeHash :: binary(), InfoHash :: binary(), Peers :: [#{ip => inet:ip_address(), port => inet:port_number()}]}}```
 * ```{announce_peer, q, Ip :: inet:ip_address(), Port :: inet:port_number(), {ImpliedPort :: 0 | 1, InfoHash :: binary(), PeerPort :: inet:port_number(), Token :: binary()}}```
 * ```{announce_peer, r, Ip :: inet:ip_address(), Port :: inet:port_number(), NodeHash :: binary()}```
 * ```{error, r, Ip :: inet:ip_address(), Port :: inet:port_number(), {ErrorCode :: 201 | 202 | 203 | 204, ErrorReason :: binary()}```

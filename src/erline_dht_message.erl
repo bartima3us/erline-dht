@@ -182,17 +182,17 @@ respond_error(Socket, Ip, Port, TxId, ErrorCode, ErrorDescription) ->
     Response    :: binary(),
     ActiveTxs   :: [active_tx()]
 ) ->
-    {ok, ping, q, Hash :: binary(), TxId :: tx_id()} |
-    {ok, ping, r, Hash :: binary(), NewActiveTx :: [active_tx()]} |
-    {ok, find_node, q, {Hash :: binary(), Target :: binary()}, TxId :: tx_id()} |
-    {ok, find_node, r, [parsed_compact_node_info()], NewActiveTx :: [active_tx()]} |
-    {ok, get_peers, q, {Hash :: binary(), InfoHash :: binary()}, TxId :: tx_id()} |
+    {ok, ping, q, NodeHash :: binary(), TxId :: tx_id()} |
+    {ok, ping, r, NodeHash :: binary(), NewActiveTx :: [active_tx()]} |
+    {ok, find_node, q, {NodeHash :: binary(), Target :: binary()}, TxId :: tx_id()} |
+    {ok, find_node, r, {NodeHash :: binary(), [parsed_compact_node_info()]}, NewActiveTx :: [active_tx()]} |
+    {ok, get_peers, q, {NodeHash :: binary(), InfoHash :: binary()}, TxId :: tx_id()} |
     {ok, get_peers, r,
-        {nodes, TxId :: tx_id(), Nodes :: [parsed_compact_node_info()], PeerToken :: binary()} |
-        {peers, TxId :: tx_id(), Peers :: [parsed_peer_info()],         PeerToken :: binary()},
+        {nodes, NodeHash :: binary(), TxId :: tx_id(), Nodes :: [parsed_compact_node_info()], PeerToken :: binary()} |
+        {peers, NodeHash :: binary(), TxId :: tx_id(), Peers :: [parsed_peer_info()],         PeerToken :: binary()},
         NewActiveTx :: [active_tx()]} |
-    {ok, announce_peer, q, {Hash :: binary(), ImpliedPort :: 0 | 1, InfoHash :: binary(), Port :: inet:port_number(), Token :: binary()}, TxId :: tx_id()} |
-    {ok, announce_peer, r, Hash :: binary(), NewActiveTx :: [active_tx()]} |
+    {ok, announce_peer, q, {NodeHash :: binary(), ImpliedPort :: 0 | 1, InfoHash :: binary(), Port :: inet:port_number(), Token :: binary()}, TxId :: tx_id()} |
+    {ok, announce_peer, r, NodeHash :: binary(), NewActiveTx :: [active_tx()]} |
     {error, {krpc_error, ErrorCode :: krpc_error_code(), ErrorReason :: binary()}, NewActiveTx :: [active_tx()]} |
     {error, {bad_query, Response :: term(), TxId :: tx_id()}} |
     {error, {bad_args, Args :: term(), TxId :: tx_id()}} |
@@ -447,13 +447,13 @@ error_response(TxId, ErrorCode, ErrorDescription) when
         Type    :: find_node,
         TxId    :: tx_id(),
         Resp    :: dict:dict()
-    ) -> CompactNodesInfo :: [parsed_compact_node_info()];
+    ) -> {NodeHash :: binary(), CompactNodesInfo :: [parsed_compact_node_info()]};
     (
         Type    :: get_peers,
         TxId    :: tx_id(),
         Resp    :: dict:dict()
-    ) -> {nodes, TxId :: tx_id(), Nodes :: [parsed_compact_node_info()], PeerToken :: binary()} |
-         {peers, TxId :: tx_id(), Peers :: [parsed_peer_info()],         PeerToken :: binary()};
+    ) -> {nodes, NodeHash :: binary(), TxId :: tx_id(), Nodes :: [parsed_compact_node_info()], PeerToken :: binary()} |
+         {peers, NodeHash :: binary(), TxId :: tx_id(), Peers :: [parsed_peer_info()],         PeerToken :: binary()};
     (
         Type    :: announce_peer,
         TxId    :: tx_id(),
@@ -461,15 +461,21 @@ error_response(TxId, ErrorCode, ErrorDescription) when
     ) -> NodeHash :: binary().
 
 parse_response_dict(ping, _TxId, Resp) ->
-    {ok, NodeHash} = dict:find(<<"id">>, Resp),
-    NodeHash;
+    case dict:find(<<"id">>, Resp) of
+        {ok, NodeHash} -> NodeHash;
+        error          -> <<>>
+    end;
 
 parse_response_dict(find_node, _TxId, Resp) ->
+    NodeHash = case dict:find(<<"id">>, Resp) of
+        {ok, NodeHash0} -> NodeHash0;
+        error          -> <<>>
+    end,
     case dict:find(<<"nodes">>, Resp) of
         {ok, CompactNodeInfo} ->
-            erline_dht_helper:decode_compact_node_info(CompactNodeInfo);
+            {NodeHash, erline_dht_helper:decode_compact_node_info(CompactNodeInfo)};
         error ->
-            []
+            {NodeHash, []}
     end;
 
 parse_response_dict(get_peers, TxId, Resp) ->
@@ -477,23 +483,29 @@ parse_response_dict(get_peers, TxId, Resp) ->
         {ok, Token} -> Token;
         error       -> <<>>
     end,
+    NodeHash = case dict:find(<<"id">>, Resp) of
+        {ok, NodeHash0} -> NodeHash0;
+        error          -> <<>>
+    end,
     case dict:find(<<"values">>, Resp) of
         {ok, {list, PeerInfoList}} ->
             ParsedPeerInfoList = erline_dht_helper:decode_peer_info(PeerInfoList),
-            {peers, TxId, ParsedPeerInfoList, PeerToken};
+            {peers, NodeHash, TxId, ParsedPeerInfoList, PeerToken};
         error ->
             case dict:find(<<"nodes">>, Resp) of
                 {ok, CompactNodeInfo} ->
                     ParsedCompactNodeInfo = erline_dht_helper:decode_compact_node_info(CompactNodeInfo),
-                    {nodes, TxId, ParsedCompactNodeInfo, PeerToken};
+                    {nodes, NodeHash, TxId, ParsedCompactNodeInfo, PeerToken};
                 error ->
-                    {nodes, TxId, [], PeerToken}
+                    {nodes, NodeHash, TxId, [], PeerToken}
             end
     end;
 
 parse_response_dict(announce_peer, _TxId, Resp) ->
-    {ok, NodeHash} = dict:find(<<"id">>, Resp),
-    NodeHash.
+    case dict:find(<<"id">>, Resp) of
+        {ok, NodeHash} -> NodeHash;
+        error          -> <<>>
+    end.
 
 
 %%  @private
