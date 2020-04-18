@@ -79,7 +79,7 @@ erline_dht:get_not_assigned_nodes() ->
        last_changed    => calendar:datetime()}].
 ```
 
-Return not assigned nodes information.
+Return not assigned nodes of the specified distance information:
 ```
 erline_dht:get_not_assigned_nodes(
     Distance :: distance()
@@ -94,7 +94,7 @@ Return amount of nodes in every bucket:
 erline_dht:get_buckets_filling() -> [#{distance => distance(), nodes => non_neg_integer()}].
 ```
 
-Return UDP socket port of the client:
+Return UDP socket port of the ErLine DHT client:
 ```
 erline_dht:get_port() -> Port :: inet:port_number().
 ```
@@ -124,12 +124,12 @@ Default sys.config:
     ]}
 ```
 
-* ```auto_bootstrap_nodes``` - List of initial nodes used in bootstrapping process just after ErLineDHT start.
+* ```auto_bootstrap_nodes``` - List of initial nodes and their port used in bootstrapping process just after ErLineDHT start.
 * ```db_mod``` - Module used for database queries encapsulation. ErLineDHT uses ETS by default but it can be easily changed by another engine.
-* ```limit_nodes``` - If true - ErLine DHT will clear some old nodes from time to time. If false - ErLine DHT will keep all known nodes. **Warning!** Since there are approximately 10-25 million of Mainline DHT network users, keeping all nodes may consume a lot of memory.
+* ```limit_nodes``` - If `true` - ErLine DHT will clear some old nodes from time to time. If `false` - ErLine DHT will keep all known nodes. **Warning!** Since there are approximately 10-25 million of Mainline DHT network users, keeping all nodes may consume a lot of memory.
 * ```k``` - Amount of nodes in a single bucket.
-* ```port``` - If 0 - ErLineDHT will open any free port. If non zero - first ErLineDHT will try to use specified port but in case it's already in use, ErLineDHT will open socket on any free port.
-* ```node_hash``` - If integer() - ErLineDHT will generate random node hash by specified amount. If binary() - ErLineDHT will use specified node hash.
+* ```port``` - If `0` - ErLineDHT will open any free port. If `inet:port_number()` - first of all, ErLineDHT will try to use specified port but in case it's already in use, ErLineDHT will open socket on any free port.
+* ```node_hash``` - If `pos_integer()` - ErLineDHT will generate random node hash by specified amount. If `binary()` - ErLineDHT will use specified node hash.
 
 ## <a name="events">Events</a> ##
 
