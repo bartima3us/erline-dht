@@ -98,7 +98,7 @@
     socket                              :: port(),
     k                                   :: pos_integer(),
     buckets                     = []    :: [#bucket{}],
-    info_hashes                 = []    :: [#info_hash{}],  % @todo persist?
+    info_hashes                 = []    :: [#info_hash{}],
     get_peers_searches_timer            :: reference(),
     clear_not_assigned_nodes_timer      :: reference(),
     update_tokens_timer                 :: reference(),
@@ -1092,7 +1092,7 @@ update_bucket(Distance, Params, State = #state{buckets = Buckets}) ->
 ) -> TimerRef :: reference().
 
 schedule_bucket_check(Distance) ->
-    Time = crypto:rand_uniform(?BUCKET_CHECK_LOW_TIME, ?BUCKET_CHECK_HIGH_TIME), % @todo remove deprecated crypto:rand_uniform
+    Time = rand:uniform(?BUCKET_CHECK_HIGH_TIME - ?BUCKET_CHECK_LOW_TIME) + ?BUCKET_CHECK_LOW_TIME,
     erlang:send_after(Time, self(), {bucket_check, Distance}).
 
 
@@ -1105,7 +1105,7 @@ schedule_bucket_check(Distance) ->
 ) -> TimerRef :: reference().
 
 schedule_bucket_ping(Distance) ->
-    Time = crypto:rand_uniform(?BUCKET_PING_LOW_TIME, ?BUCKET_PING_HIGH_TIME),
+    Time = rand:uniform(?BUCKET_PING_HIGH_TIME - ?BUCKET_PING_LOW_TIME) + ?BUCKET_PING_LOW_TIME,
     erlang:send_after(Time, self(), {bucket_ping, Distance}).
 
 
