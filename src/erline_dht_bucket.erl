@@ -48,6 +48,7 @@
     do_ping_async/3,
     do_find_node_async/4,
     do_get_peers_async/4,
+    handle_response_generic/6,
     get_bucket_and_node/3,
     update_tx_id/1,
     update_node/4,
@@ -977,7 +978,7 @@ do_get_peers_async(Bucket, Node = #node{ip_port = {Ip, Port}}, InfoHash, State =
 %%  @doc
 %%  Generic node and bucket update function for all responses.
 %%  @end
--spec handle_response_generic(  % @todo tests
+-spec handle_response_generic(
     Ip          :: inet:ip_address(),
     Port        :: inet:port_number(),
     NewNodeHash :: binary(),
