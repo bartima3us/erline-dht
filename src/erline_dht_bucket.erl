@@ -45,6 +45,7 @@
     handle_find_node_response/7,
     handle_get_peers_query/6,
     handle_get_peers_response/6,
+    handle_announce_peer_response/6,
     do_ping_async/3,
     do_find_node_async/4,
     do_get_peers_async/4,
@@ -865,7 +866,7 @@ handle_announce_peer_query(Ip, Port, NodeHash, ImpliedPort, InfoHash, PeerPort, 
 %%  @doc
 %%  Handle announce_peer response from socket.
 %%  @end
--spec handle_announce_peer_response(  % @todo tests
+-spec handle_announce_peer_response(
     Ip          :: inet:ip_address(),
     Port        :: inet:port_number(),
     NewNodeHash :: binary(),

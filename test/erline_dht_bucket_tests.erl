@@ -1156,6 +1156,448 @@ handle_get_peers_response_test_() ->
 %%
 %%
 %%
+handle_announce_peer_response_test_() ->
+    EventMgrPid = erlang:list_to_pid("<0.0.100>"),
+    State = #state{
+        event_mgr_pid = EventMgrPid,
+        db_mod        = erline_dht_db_ets,
+        socket        = sock,
+        my_node_hash  = <<"h45h">>,
+        k             = 3,
+        buckets       = [
+            Bucket = #bucket{
+                distance = 1,
+                nodes    = [
+                    #node{
+                        hash     = <<"my_n0d3_h45h">>,
+                        ip_port  = {{12,34,92,155}, 6862},
+                        distance = 1
+                    }
+                ]
+            },
+            #bucket{
+                distance = 2,
+                nodes    = []
+            },
+            #bucket{ % No free space in this bucket
+                distance = 3,
+                nodes    = [
+                    #node{
+                        ip_port  = {{12,34,92,156}, 6863},
+                        status   = active
+                    },
+                    #node{
+                        ip_port  = {{12,34,92,157}, 6864},
+                        status   = active
+                    },
+                    #node{
+                        ip_port  = {{12,34,92,158}, 6865},
+                        status   = active
+                    }
+                ]
+            }
+        ]
+    },
+    {setup,
+        fun() ->
+            ok = meck:new([erline_dht_message, erline_dht_helper, erline_dht_db_ets]),
+            ok = meck:expect(erline_dht_helper, get_distance, fun
+                (<<"h45h">>, <<"n3w_n0d3_h45h1">>) -> {error, {malformed_hashes, <<"h45h">>, <<"n3w_n0d3_h45h1">>}};
+                (<<"h45h">>, <<"n3w_n0d3_h45h2">>) -> {ok, 1};
+                (<<"h45h">>, <<"n3w_n0d3_h45h3">>) -> {ok, 2};
+                (<<"h45h">>, <<"n3w_n0d3_h45h4">>) -> {ok, 3}; % No free space in this bucket
+                (<<"h45h">>, <<"n3w_n0d3_h45h5">>) -> {ok, 1};
+                (<<"h45h">>, <<"n3w_n0d3_h45h6">>) -> {ok, 3}  % No free space in this bucket
+            end),
+            ok = meck:expect(erline_dht_helper, notify, fun
+                (MatchEventMgrPid, {announce_peer, r, {12,34,92,155}, 6862, <<"n3w_n0d3_h45h1">>}) when MatchEventMgrPid =:= EventMgrPid -> ok;
+                (MatchEventMgrPid, {announce_peer, r, {12,34,92,155}, 6862, <<"n3w_n0d3_h45h2">>}) when MatchEventMgrPid =:= EventMgrPid -> ok;
+                (MatchEventMgrPid, {announce_peer, r, {12,34,92,155}, 6862, <<"n3w_n0d3_h45h3">>}) when MatchEventMgrPid =:= EventMgrPid -> ok;
+                (MatchEventMgrPid, {announce_peer, r, {12,34,92,155}, 6862, <<"n3w_n0d3_h45h4">>}) when MatchEventMgrPid =:= EventMgrPid -> ok;
+                (MatchEventMgrPid, {announce_peer, r, {12,34,92,185}, 6882, <<"n3w_n0d3_h45h5">>}) when MatchEventMgrPid =:= EventMgrPid -> ok;
+                (MatchEventMgrPid, {announce_peer, r, {12,34,92,186}, 6883, <<"n3w_n0d3_h45h6">>}) when MatchEventMgrPid =:= EventMgrPid -> ok
+            end),
+            ok = meck:expect(erline_dht_helper, local_time, [], {{2020,7,1},{12,0,0}}),
+            ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, fun
+                ({12,34,92,155}, 6862) -> [];
+                ({12,34,92,185}, 6882) -> [#node{ip_port = {{12,34,92,185}, 6882}}];
+                ({12,34,92,186}, 6883) -> [#node{ip_port = {{12,34,92,186}, 6883}}]
+            end),
+            ok = meck:expect(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_'], true),
+            ok = meck:expect(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, [{12,34,92,185}, 6882], true),
+            ok = meck:expect(erline_dht_message, send_find_node, fun
+                ({12,34,92,185}, 6882, sock, <<0,0>>, <<"h45h">>, <<"h45h">>) -> ok;
+                ({12,34,92,186}, 6883, sock, <<0,0>>, <<"h45h">>, <<"h45h">>) -> ok
+            end)
+        end,
+        fun(_) ->
+            true = meck:validate([erline_dht_message, erline_dht_helper, erline_dht_db_ets]),
+            ok = meck:unload([erline_dht_message, erline_dht_helper, erline_dht_db_ets])
+        end,
+        [{"Handle announce_peer response. New hash is malformed.",
+            fun() ->
+                ?assertEqual(
+                    #state{
+                        event_mgr_pid = EventMgrPid,
+                        db_mod        = erline_dht_db_ets,
+                        socket        = sock,
+                        my_node_hash  = <<"h45h">>,
+                        k             = 3,
+                        buckets       = [
+                            #bucket{
+                                distance = 1,
+                                nodes    = [
+                                    #node{
+                                        hash         = <<"n3w_n0d3_h45h1">>,
+                                        ip_port      = {{12,34,92,155}, 6862},
+                                        last_changed = {{2020,7,1},{12,0,0}},
+                                        active_txs   = [{announce_peer,<<0,2>>}],
+                                        status       = not_active,
+                                        distance     = 1
+                                    }
+                                ]
+                            },
+                            #bucket{
+                                distance = 2,
+                                nodes    = []
+                            },
+                            #bucket{
+                                distance = 3,
+                                nodes    = [
+                                    #node{
+                                        ip_port  = {{12,34,92,156}, 6863},
+                                        status   = active
+                                    },
+                                    #node{
+                                        ip_port  = {{12,34,92,157}, 6864},
+                                        status   = active
+                                    },
+                                    #node{
+                                        ip_port  = {{12,34,92,158}, 6865},
+                                        status   = active
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    erline_dht_bucket:handle_announce_peer_response({12,34,92,155}, 6862, <<"n3w_n0d3_h45h1">>, [{announce_peer, <<0,2>>}], Bucket, State)
+                ),
+                ?assertEqual(
+                    2,
+                    meck:num_calls(erline_dht_helper, get_distance, [<<"h45h">>, <<"n3w_n0d3_h45h1">>])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {announce_peer, r, {12,34,92,155}, 6862, <<"n3w_n0d3_h45h1">>}])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, local_time, [])
+                ),
+                ok = meck:reset(erline_dht_helper)
+            end
+        },
+        {"Handle announce_peer response. Bucket is found. Distance stay the same.",
+            fun() ->
+                ?assertEqual(
+                    #state{
+                        event_mgr_pid = EventMgrPid,
+                        db_mod        = erline_dht_db_ets,
+                        socket        = sock,
+                        my_node_hash  = <<"h45h">>,
+                        k             = 3,
+                        buckets       = [
+                            #bucket{
+                                distance = 1,
+                                nodes    = [
+                                    #node{
+                                        hash         = <<"n3w_n0d3_h45h2">>,
+                                        ip_port      = {{12,34,92,155}, 6862},
+                                        last_changed = {{2020,7,1},{12,0,0}},
+                                        active_txs   = [{announce_peer,<<0,2>>}],
+                                        status       = active,
+                                        distance     = 1
+                                    }
+                                ]
+                            },
+                            #bucket{
+                                distance = 2,
+                                nodes    = []
+                            },
+                            #bucket{
+                                distance = 3,
+                                nodes    = [
+                                    #node{
+                                        ip_port  = {{12,34,92,156}, 6863},
+                                        status   = active
+                                    },
+                                    #node{
+                                        ip_port  = {{12,34,92,157}, 6864},
+                                        status   = active
+                                    },
+                                    #node{
+                                        ip_port  = {{12,34,92,158}, 6865},
+                                        status   = active
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    erline_dht_bucket:handle_announce_peer_response({12,34,92,155}, 6862, <<"n3w_n0d3_h45h2">>, [{announce_peer, <<0,2>>}], Bucket, State)
+                ),
+                ?assertEqual(
+                    2,
+                    meck:num_calls(erline_dht_helper, get_distance, [<<"h45h">>, <<"n3w_n0d3_h45h2">>])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {announce_peer, r, {12,34,92,155}, 6862, <<"n3w_n0d3_h45h2">>}])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, local_time, [])
+                ),
+                ok = meck:reset(erline_dht_helper)
+            end
+        },
+        {"Handle announce_peer response. Bucket is found. Distance is different from the old one. Bucket has some free space.",
+            fun() ->
+                ?assertEqual(
+                    #state{
+                        event_mgr_pid = EventMgrPid,
+                        db_mod        = erline_dht_db_ets,
+                        socket        = sock,
+                        my_node_hash  = <<"h45h">>,
+                        k             = 3,
+                        buckets       = [
+                            #bucket{
+                                distance = 1,
+                                nodes    = []
+                            },
+                            #bucket{
+                                distance = 2,
+                                nodes    = [
+                                    #node{
+                                        hash         = <<"n3w_n0d3_h45h3">>,
+                                        ip_port      = {{12,34,92,155}, 6862},
+                                        last_changed = {{2020,7,1},{12,0,0}},
+                                        active_txs   = [{announce_peer,<<0,2>>}],
+                                        status       = active,
+                                        distance     = 2
+                                    }
+                                ]
+                            },
+                            #bucket{
+                                distance = 3,
+                                nodes    = [
+                                    #node{
+                                        ip_port  = {{12,34,92,156}, 6863},
+                                        status   = active
+                                    },
+                                    #node{
+                                        ip_port  = {{12,34,92,157}, 6864},
+                                        status   = active
+                                    },
+                                    #node{
+                                        ip_port  = {{12,34,92,158}, 6865},
+                                        status   = active
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    erline_dht_bucket:handle_announce_peer_response({12,34,92,155}, 6862, <<"n3w_n0d3_h45h3">>, [{announce_peer, <<0,2>>}], Bucket, State)
+                ),
+                ?assertEqual(
+                    2,
+                    meck:num_calls(erline_dht_helper, get_distance, [<<"h45h">>, <<"n3w_n0d3_h45h3">>])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {announce_peer, r, {12,34,92,155}, 6862, <<"n3w_n0d3_h45h3">>}])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, local_time, [])
+                ),
+                ok = meck:reset(erline_dht_helper)
+            end
+        },
+        {"Handle announce_peer response. Bucket is found. Distance is different from the old one. Bucket has no free space.",
+            fun() ->
+                ?assertEqual(
+                    #state{
+                        event_mgr_pid = EventMgrPid,
+                        db_mod        = erline_dht_db_ets,
+                        socket        = sock,
+                        my_node_hash  = <<"h45h">>,
+                        k             = 3,
+                        buckets       = [
+                            #bucket{
+                                distance = 1,
+                                nodes    = []
+                            },
+                            #bucket{
+                                distance = 2,
+                                nodes    = []
+                            },
+                            #bucket{
+                                distance = 3,
+                                nodes    = [
+                                    #node{
+                                        ip_port  = {{12,34,92,156}, 6863},
+                                        status   = active
+                                    },
+                                    #node{
+                                        ip_port  = {{12,34,92,157}, 6864},
+                                        status   = active
+                                    },
+                                    #node{
+                                        ip_port  = {{12,34,92,158}, 6865},
+                                        status   = active
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    erline_dht_bucket:handle_announce_peer_response({12,34,92,155}, 6862, <<"n3w_n0d3_h45h4">>, [{announce_peer, <<0,2>>}], Bucket, State)
+                ),
+                ?assertEqual(
+                    2,
+                    meck:num_calls(erline_dht_helper, get_distance, [<<"h45h">>, <<"n3w_n0d3_h45h4">>])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {announce_peer, r, {12,34,92,155}, 6862, <<"n3w_n0d3_h45h4">>}])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, local_time, [])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_'])
+                ),
+                ok = meck:reset([erline_dht_helper, erline_dht_db_ets])
+            end
+        },
+        {"Handle announce_peer response. Bucket is not found. Bucket has some free space.",
+            fun() ->
+                ?assertEqual(
+                    #state{
+                        event_mgr_pid = EventMgrPid,
+                        db_mod        = erline_dht_db_ets,
+                        socket        = sock,
+                        my_node_hash  = <<"h45h">>,
+                        k             = 3,
+                        buckets       = [
+                            #bucket{
+                                distance = 1,
+                                nodes    = [
+                                    #node{
+                                        hash         = <<"n3w_n0d3_h45h5">>,
+                                        ip_port      = {{12,34,92,185}, 6882},
+                                        last_changed = {{2020,7,1},{12,0,0}},
+                                        status       = active,
+                                        distance     = 1
+                                    },
+                                    #node{
+                                        hash     = <<"my_n0d3_h45h">>,
+                                        ip_port  = {{12,34,92,155}, 6862},
+                                        distance = 1
+                                    }
+                                ]
+                            },
+                            #bucket{
+                                distance = 2,
+                                nodes    = []
+                            },
+                            #bucket{
+                                distance = 3,
+                                nodes    = [
+                                    #node{
+                                        ip_port  = {{12,34,92,156}, 6863},
+                                        status   = active
+                                    },
+                                    #node{
+                                        ip_port  = {{12,34,92,157}, 6864},
+                                        status   = active
+                                    },
+                                    #node{
+                                        ip_port  = {{12,34,92,158}, 6865},
+                                        status   = active
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    erline_dht_bucket:handle_announce_peer_response({12,34,92,185}, 6882, <<"n3w_n0d3_h45h5">>, [{announce_peer, <<0,2>>}], false, State)
+                ),
+                ?assertEqual(
+                    2,
+                    meck:num_calls(erline_dht_helper, get_distance, [<<"h45h">>, <<"n3w_n0d3_h45h5">>])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {announce_peer, r, {12,34,92,185}, 6882, <<"n3w_n0d3_h45h5">>}])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, local_time, [])
+                ),
+                ?assertEqual(
+                    2,
+                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_'])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, [{12,34,92,185}, 6882])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_message, send_find_node, [{12,34,92,185}, 6882, sock, <<0,0>>, <<"h45h">>, <<"h45h">>])
+                ),
+                ok = meck:reset([erline_dht_helper, erline_dht_db_ets, erline_dht_message])
+            end
+        },
+        {"Handle announce_peer response. Bucket is not found. Bucket has no free space.",
+            fun() ->
+                ?assertEqual(
+                    State,
+                    erline_dht_bucket:handle_announce_peer_response({12,34,92,186}, 6883, <<"n3w_n0d3_h45h6">>, [{announce_peer, <<0,2>>}], false, State)
+                ),
+                ?assertEqual(
+                    2,
+                    meck:num_calls(erline_dht_helper, get_distance, [<<"h45h">>, <<"n3w_n0d3_h45h6">>])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {announce_peer, r, {12,34,92,186}, 6883, <<"n3w_n0d3_h45h6">>}])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, local_time, [])
+                ),
+                ?assertEqual(
+                    3,
+                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_'])
+                ),
+                ?assertEqual(
+                    0,
+                    meck:num_calls(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, [{12,34,92,186}, 6883])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_message, send_find_node, [{12,34,92,186}, 6883, sock, <<0,0>>, <<"h45h">>, <<"h45h">>])
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
 do_ping_async_test_() ->
     State = #state{
         my_node_hash = <<"h45h">>,
