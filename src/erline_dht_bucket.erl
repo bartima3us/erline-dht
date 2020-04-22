@@ -827,9 +827,9 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
 %%  @doc
 %%  Handle announce_peer query from socket.
 %%  @end
--spec handle_announce_peer_query(  % @todo tests
+-spec handle_announce_peer_query(
     Ip              :: inet:ip_address(),
-    Port            :: inet:port_number(),
+    NodePort        :: inet:port_number(),
     NodeHash        :: binary(),
     ImpliedPort     :: 0 | 1,
     InfoHash        :: binary(),
@@ -839,24 +839,28 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
     State           :: #state{}
 ) -> NewState :: #state{}.
 
-handle_announce_peer_query(Ip, Port, NodeHash, ImpliedPort, InfoHash, PeerPort, ReceivedToken, ReceivedTxId, State) ->
+handle_announce_peer_query(Ip, NodePort, NodeHash, ImpliedPort, InfoHash, PeerPort, ReceivedToken, ReceivedTxId, State) ->
     #state{
         socket        = Socket,
         my_node_hash  = MyNodeHash,
         event_mgr_pid = EventMgrPid,
         valid_tokens  = ValidTokens
     } = State,
-    ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, q, Ip, Port, {ImpliedPort, InfoHash, PeerPort, ReceivedToken}}),
+    ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, q, Ip, NodePort, {ImpliedPort, InfoHash, PeerPort, ReceivedToken}}),
     NewState0 = case lists:member(ReceivedToken, ValidTokens) of
         true  ->
-            erline_dht_message:respond_announce_peer(Ip, Port, Socket, ReceivedTxId, MyNodeHash),
-            add_peer(InfoHash, Ip, Port, State);
+            ok = erline_dht_message:respond_announce_peer(Ip, NodePort, Socket, ReceivedTxId, MyNodeHash),
+            % If ImpliedPort is present and non-zero, the port argument should be ignored and the source port of the UDP packet should be used as the peer's port instead.
+            case ImpliedPort of
+                0 -> add_peer(InfoHash, Ip, PeerPort, State);
+                _ -> add_peer(InfoHash, Ip, NodePort, State)
+            end;
         false ->
-            erline_dht_message:respond_error(Socket, Ip, Port, ReceivedTxId, 203, <<"Bad Token">>),
+            erline_dht_message:respond_error(Socket, Ip, NodePort, ReceivedTxId, 203, <<"Bad Token">>),
             State
     end,
-    ok = add_node(Ip, Port, NodeHash),
-    case get_bucket_and_node(Ip, Port, NewState0) of
+    ok = add_node(Ip, NodePort, NodeHash),
+    case get_bucket_and_node(Ip, NodePort, NewState0) of
         {ok, Bucket, Node} -> update_node(Bucket, Node, [{last_changed, erline_dht_helper:local_time()}], NewState0);
         false              -> NewState0
     end.
