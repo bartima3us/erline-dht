@@ -22,6 +22,7 @@
     ip_port                         :: {inet:ip_address(), inet:port_number()},
     hash                            :: binary(),
     token_received                  :: binary(), % Token received from this node
+    token_sent                      :: binary(), % Token sent to this node
     last_changed                    :: calendar:datetime(),
     tx_id           = <<0,0>>       :: tx_id(),
     active_txs      = []            :: [{request(), tx_id()}],

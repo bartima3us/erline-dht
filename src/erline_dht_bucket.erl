@@ -759,8 +759,12 @@ handle_get_peers_query(Ip, Port, NodeHash, InfoHash, ReceivedTxId, State) ->
     end,
     ok = erline_dht_message:respond_get_peers(Ip, Port, Socket, ReceivedTxId, MyNodeHash, Token, PeersOrNodes),
     ok = add_node(Ip, Port, NodeHash),
+    Params = [
+        {last_changed, erline_dht_helper:local_time()},
+        {token_sent, Token}
+    ],
     case get_bucket_and_node(Ip, Port, State) of
-        {ok, Bucket, Node} -> update_node(Bucket, Node, [{last_changed, erline_dht_helper:local_time()}], State);
+        {ok, Bucket, Node} -> update_node(Bucket, Node, Params, State);
         false              -> State
     end.
 
@@ -827,7 +831,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
 %%  @doc
 %%  Handle announce_peer query from socket.
 %%  @end
--spec handle_announce_peer_query(
+-spec handle_announce_peer_query(   % @todo tests
     Ip              :: inet:ip_address(),
     NodePort        :: inet:port_number(),
     NodeHash        :: binary(),
@@ -847,7 +851,11 @@ handle_announce_peer_query(Ip, NodePort, NodeHash, ImpliedPort, InfoHash, PeerPo
         valid_tokens  = ValidTokens
     } = State,
     ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, q, Ip, NodePort, {ImpliedPort, InfoHash, PeerPort, ReceivedToken}}),
-    NewState0 = case lists:member(ReceivedToken, ValidTokens) of
+    SentToken = case get_bucket_and_node(Ip, NodePort, State) of
+        {ok, _, #node{token_sent = TokenSent}} -> TokenSent;
+        _ -> undefined
+    end,
+    NewState0 = case SentToken =:= ReceivedToken andalso lists:member(ReceivedToken, ValidTokens) of
         true  ->
             ok = erline_dht_message:respond_announce_peer(Ip, NodePort, Socket, ReceivedTxId, MyNodeHash),
             % If ImpliedPort is present and non-zero, the port argument should be ignored and the source port of the UDP packet should be used as the peer's port instead.
@@ -1092,6 +1100,7 @@ update_tx_id(Node = #node{tx_id = LastTxIdBin}) ->
     Port    :: inet:port_number(),
     Params  :: [{hash, Hash :: binary()} |
                 {token_received, TokenReceived :: binary()} |
+                {token_sent, TokenSent :: binary()} |
                 {last_changed, LastChanged :: calendar:datetime()} |
                 {active_txs, [ActiveTx :: active_tx()]} |
                 tx_id |
@@ -1120,6 +1129,8 @@ update_node(Bucket, Node = #node{ip_port = {Ip, Port}}, Params, State = #state{}
             end;
         ({token_received, TokenReceived}, AccNode) ->
             AccNode#node{token_received = TokenReceived};
+        ({token_sent, TokenSent}, AccNode) ->
+            AccNode#node{token_sent = TokenSent};
         ({last_changed, LastChanged}, AccNode) ->
             AccNode#node{last_changed = LastChanged};
         ({active_txs, ActiveTx}, AccNode) ->

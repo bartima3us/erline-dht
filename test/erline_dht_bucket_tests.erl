@@ -30,6 +30,7 @@
     ip_port                         :: {inet:ip_address(), inet:port_number()},
     hash                            :: binary(),
     token_received                  :: binary(),
+    token_sent                      :: binary(),
     last_changed                    :: calendar:datetime(),
     tx_id           = <<0,0>>       :: tx_id(),
     active_txs      = []            :: [{request(), tx_id()}],
@@ -534,7 +535,7 @@ handle_get_peers_query_test_() ->
             ok = meck:expect(erline_dht_helper, encode_peer_info, ['_'], <<"c0mp4ct_p33r5">>),
             ok = meck:expect(erline_dht_helper, local_time, [], {{2020,7,1},{12,0,0}}),
             ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, [{12,34,92,155}, 6862], [#node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>}]),
-            ok = meck:expect(erline_dht_db_ets, insert_to_not_assigned_nodes, [#node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, last_changed = {{2020,7,1},{12,0,0}}}], true)
+            ok = meck:expect(erline_dht_db_ets, insert_to_not_assigned_nodes, [#node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, token_sent = <<"t0k3n">>, last_changed = {{2020,7,1},{12,0,0}}}], true)
         end,
         fun(_) ->
             true = meck:validate([erline_dht_message, erline_dht_helper, erline_dht_db_ets]),
@@ -568,7 +569,7 @@ handle_get_peers_query_test_() ->
                 ),
                 ?assertEqual(
                     1,
-                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, [#node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, last_changed = {{2020,7,1},{12,0,0}}}])
+                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, [#node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, token_sent = <<"t0k3n">>, last_changed = {{2020,7,1},{12,0,0}}}])
                 ),
                 ok = meck:reset([erline_dht_helper, erline_dht_db_ets])
             end
@@ -601,7 +602,7 @@ handle_get_peers_query_test_() ->
                 ),
                 ?assertEqual(
                     1,
-                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, [#node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, last_changed = {{2020,7,1},{12,0,0}}}])
+                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, [#node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, token_sent = <<"t0k3n">>, last_changed = {{2020,7,1},{12,0,0}}}])
                 )
             end
         }]
@@ -1698,6 +1699,7 @@ update_node_test_() ->
     Params = [
         {hash, <<"n3w_h45h">>},
         {token_received, <<"t0k3n_r3c31v3d">>},
+        {token_sent, <<"t0k3n_s3nt">>},
         {last_changed, {{2020,7,1},{12,0,0}}},
         {active_txs, [{find_node, <<0,2>>}, {ping, <<0,3>>}]},
         tx_id,
@@ -1732,6 +1734,7 @@ update_node_test_() ->
     UpdatedNode = #node{
         ip_port         = {{12,34,92,154}, 6861},
         token_received  = <<"t0k3n_r3c31v3d">>,
+        token_sent      = <<"t0k3n_s3nt">>,
         hash            = <<"n3w_h45h">>,
         last_changed    = {{2020,7,1},{12,0,0}},
         active_txs      = [{find_node, <<0,2>>}, {ping, <<0,3>>}],
