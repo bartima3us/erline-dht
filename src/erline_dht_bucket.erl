@@ -16,7 +16,9 @@
 -export([
     start_link/0,
     add_node/2,
+    add_node_without_ping/2,
     add_node/3,
+    add_node_without_ping/3,
     get_peers/1,
     get_peers/3,
     get_port/0,
@@ -134,7 +136,20 @@ start_link() ->
 ) -> ok.
 
 add_node(Ip, Port) ->
-    gen_server:cast(?SERVER, {add_node, Ip, Port, undefined}).
+    gen_server:cast(?SERVER, {add_node, Ip, Port, undefined, true}).
+
+
+%%  @doc
+%%  Add node with unknown hash to the bucket.
+%%  Do not ping after addition.
+%%  @end
+-spec add_node_without_ping(
+    Ip      :: inet:ip_address(),
+    Port    :: inet:port_number()
+) -> ok.
+
+add_node_without_ping(Ip, Port) ->
+    gen_server:cast(?SERVER, {add_node, Ip, Port, undefined, false}).
 
 
 %%  @doc
@@ -147,7 +162,21 @@ add_node(Ip, Port) ->
 ) -> ok.
 
 add_node(Ip, Port, Hash) ->
-    gen_server:cast(?SERVER, {add_node, Ip, Port, Hash}).
+    gen_server:cast(?SERVER, {add_node, Ip, Port, Hash, true}).
+
+
+%%  @doc
+%%  Add node with known hash to the bucket.
+%%  Do not ping after addition.
+%%  @end
+-spec add_node_without_ping(
+    Ip      :: inet:ip_address(),
+    Port    :: inet:port_number(),
+    Hash    :: binary()
+) -> ok.
+
+add_node_without_ping(Ip, Port, Hash) ->
+    gen_server:cast(?SERVER, {add_node, Ip, Port, Hash, false}).
 
 
 %%  @doc
@@ -293,7 +322,7 @@ init([]) ->
         my_node_hash                    = MyNodeHash,
         buckets                         = lists:reverse(Buckets),
         get_peers_searches_timer        = schedule_get_peers_searches_check(),
-        clear_not_assigned_nodes_timer  = ClearNotAssignedRef,
+%%        clear_not_assigned_nodes_timer  = ClearNotAssignedRef,
         update_tokens_timer             = schedule_update_tokens(),
         db_mod                          = DbMod,
         event_mgr_pid                   = EventMgrPid,
@@ -384,7 +413,7 @@ handle_call(_Request, _From, State) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-handle_cast({add_node, Ip, Port, Hash}, State = #state{}) ->
+handle_cast({add_node, Ip, Port, Hash, Ping}, State = #state{}) ->
     #state{
         my_node_hash  = MyNodeHash,
         db_mod        = DbMod
@@ -407,8 +436,13 @@ handle_cast({add_node, Ip, Port, Hash}, State = #state{}) ->
                 last_changed = erline_dht_helper:local_time()
             },
             true = DbMod:insert_to_not_assigned_nodes(NewNode),
-            {ok, NewState0} = do_ping_async(Ip, Port, State),
-            NewState0;
+            case Ping of
+                true ->
+                    {ok, NewState0} = do_ping_async(Ip, Port, State),
+                    NewState0;
+                false ->
+                    State
+            end;
         {ok, _Bucket, #node{}} ->
             State
     end,
@@ -807,7 +841,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
                             [_|_]  ->
                                 ok;
                             [] ->
-                                ok = add_node(FoundIp, FoundPort, FoundedHash),
+                                ok = add_node_without_ping(FoundIp, FoundPort, FoundedHash),
                                 ok = get_peers(FoundIp, FoundPort, InfoHash)
                         end
                     end, NodesOrPeers),
@@ -817,9 +851,10 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
                     io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, NodesOrPeers]),
                     ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, Ip, Port, {peers, InfoHash, NodesOrPeers}}),
                     lists:foldl(fun (#{ip := FoundIp, port := FoundPort}, StateAcc) ->
-                        ok = add_node(FoundIp, FoundPort),
+                        ok = add_node_without_ping(FoundIp, FoundPort),
                         add_peer(InfoHash, FoundIp, FoundPort, StateAcc)
-                    end, State, NodesOrPeers)
+                    end, State, NodesOrPeers),
+                    State
             end
     end,
     NewState1 = update_node(Ip, Port, [{token_received, Token}], NewState0),
