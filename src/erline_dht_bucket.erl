@@ -322,7 +322,7 @@ init([]) ->
         my_node_hash                    = MyNodeHash,
         buckets                         = lists:reverse(Buckets),
         get_peers_searches_timer        = schedule_get_peers_searches_check(),
-%%        clear_not_assigned_nodes_timer  = ClearNotAssignedRef,
+        clear_not_assigned_nodes_timer  = ClearNotAssignedRef,
         update_tokens_timer             = schedule_update_tokens(),
         db_mod                          = DbMod,
         event_mgr_pid                   = EventMgrPid,
@@ -818,8 +818,8 @@ handle_get_peers_query(Ip, Port, NodeHash, InfoHash, ReceivedTxId, State) ->
     State           :: #state{}
 ) -> NewState :: #state{}.
 
-handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
-    {What, NewNodeHash, TxId, NodesOrPeers, Token} = GetPeersResp,
+handle_get_peers_response(Ip, Port, GetPeersResp, _NewActiveTx, _Bucket, State) ->
+    {What, _NewNodeHash, TxId, NodesOrPeers, Token} = GetPeersResp,
     #state{
         event_mgr_pid = EventMgrPid,
         db_mod        = DbMod
@@ -857,8 +857,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
                     State
             end
     end,
-    NewState1 = update_node(Ip, Port, [{token_received, Token}], NewState0),
-    handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, NewState1).
+    update_node(Ip, Port, [{token_received, Token}], NewState0). % @todo use handle_response_generic as last function
 
 
 %%  @private
@@ -1025,7 +1024,7 @@ do_get_peers_async(Bucket, Node = #node{ip_port = {Ip, Port}}, InfoHash, State =
 %%  @doc
 %%  Generic node and bucket update function for all responses.
 %%  @end
--spec handle_response_generic(
+-spec handle_response_generic( % @todo makes network congestion in get_peers case
     Ip          :: inet:ip_address(),
     Port        :: inet:port_number(),
     NewNodeHash :: binary(),
