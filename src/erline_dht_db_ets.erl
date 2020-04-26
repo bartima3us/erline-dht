@@ -30,6 +30,7 @@
 -export([
     insert_to_requested_nodes/1,
     get_requested_node/3,
+    get_requested_nodes/1,
     get_info_hash/3,
     delete_requested_nodes/1
 ]).
@@ -167,6 +168,17 @@ insert_to_requested_nodes(Node) ->
 
 get_requested_node(Ip, Port, InfoHash) ->
     ets:match_object(?REQUESTED_NODES_TABLE, #requested_node{ip_port = {Ip, Port}, info_hash = InfoHash, _ = '_'}).
+
+
+%%
+%%
+%%
+-spec get_requested_nodes(
+    InfoHash :: binary()
+) -> [#requested_node{}].
+
+get_requested_nodes(InfoHash) ->
+    ets:match_object(?REQUESTED_NODES_TABLE, #requested_node{info_hash = InfoHash, _ = '_'}).
 
 
 %%

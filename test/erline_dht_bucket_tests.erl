@@ -2263,7 +2263,11 @@ add_peer_test_() ->
 %%
 %%
 %%
-clear_peers_searches_test_() ->
+check_searches_test_() ->
+    State = #state{
+        db_mod = erline_dht_db_ets,
+        k      = 3
+    },
     {setup,
         fun() ->
             ok = meck:new([erline_dht_db_ets, erline_dht_helper]),
@@ -2272,6 +2276,7 @@ clear_peers_searches_test_() ->
                 #get_peers_search{last_changed = {{2020,7,1},{11,0,0}}},
                 #get_peers_search{last_changed = {{2020,7,1},{12,0,0}}}
             ]),
+            ok = meck:expect(erline_dht_db_ets, get_requested_nodes, ['_'], []),
             ok = meck:expect(erline_dht_db_ets, delete_get_peers_search, ['_'], true),
             ok = meck:expect(erline_dht_db_ets, delete_requested_nodes, ['_'], true),
             ok = meck:expect(erline_dht_helper, datetime_diff, fun
@@ -2285,11 +2290,11 @@ clear_peers_searches_test_() ->
             true = meck:validate([erline_dht_db_ets, erline_dht_helper]),
             ok = meck:unload([erline_dht_db_ets, erline_dht_helper])
         end,
-        [{"Clear old peers searches.",
+        [{"After search is exhausted, insert infohash with contact information of itself and clear old peers searches.",
             fun() ->
                 ?assertEqual(
-                    ok,
-                    erline_dht_bucket:clear_peers_searches(#state{db_mod = erline_dht_db_ets})
+                    State,
+                    erline_dht_bucket:check_searches(State)
                 ),
                 ?assertEqual(
                     1,

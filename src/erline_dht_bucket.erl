@@ -58,7 +58,7 @@
     find_n_closest_nodes/5,
     find_local_peers_by_info_hash/2,
     add_peer/4,
-    clear_peers_searches/1,
+    check_searches/1,
     update_tokens/1,
     update_bucket_nodes_status/2,
     init_not_active_nodes_replacement/2,
@@ -563,10 +563,9 @@ handle_info({bucket_ping, Distance}, State = #state{buckets = Buckets}) ->
 %
 %
 handle_info(get_peers_searches_check, State = #state{}) ->
-    % @todo After the search is exhausted, the client then inserts the peer contact information for itself onto the responding nodes with IDs closest to the infohash of the torrent.
-    ok = clear_peers_searches(State),
-    NewState = State#state{get_peers_searches_timer = schedule_get_peers_searches_check()},
-    {noreply, NewState};
+    NewState0 = check_searches(State),
+    NewState1 = NewState0#state{get_peers_searches_timer = schedule_get_peers_searches_check()},
+    {noreply, NewState1};
 
 %
 %
@@ -1389,22 +1388,50 @@ add_peer(InfoHashBin, Ip, Port, State = #state{info_hashes = InfoHashes}) ->
 
 %%  @private
 %%  @doc
-%%  Clear old peers search list and used peers in that searches cache.
+%%  Insert the peer contact information for itself onto the responding nodes with IDs closest to the infohash of the file.
 %%  @end
--spec clear_peers_searches(
-    State :: #state{}
-) -> ok.
+-spec insert_info_hash( % @todo test
+    InfoHash :: binary(),
+    State    :: #state{}
+) -> NewState :: #state{}.
 
-clear_peers_searches(#state{db_mod = DbMod}) ->
-    ok = lists:foreach(fun (#get_peers_search{info_hash = InfoHash, last_changed = LastChanged}) ->
+insert_info_hash(InfoHash, State = #state{db_mod = DbMod, k = K}) ->
+    NodesWithDist = lists:foldl(fun (#requested_node{ip_port = {Ip, Port}}, AccNodes) ->
+            case get_bucket_and_node(Ip, Port, State) of
+                {ok, _, #node{hash = NodeHash}} ->
+                    case erline_dht_helper:get_distance(InfoHash, NodeHash) of
+                        {ok, Distance}   -> [{Distance, {Ip, Port}, NodeHash} | AccNodes];
+                        {error, _Reason} -> AccNodes
+                    end;
+                false ->
+                    AccNodes
+            end
+    end, [], DbMod:get_requested_nodes(InfoHash)),
+    lists:foldl(fun (_, StateAcc) ->
+        % @todo send announce_peer
+        StateAcc
+    end, State, lists:sublist(lists:usort(NodesWithDist), K)).
+
+
+%%  @private
+%%  @doc
+%%  After the search is exhausted, insert the peer contact information for itself onto the responding nodes with IDs closest to the infohash of the file.
+%%  Clear old peers search list and used peers in that searches cache after insertion.
+%%  @end
+-spec check_searches(State :: #state{}) -> NewState :: #state{}.
+
+check_searches(State = #state{db_mod = DbMod}) ->
+    lists:foldl(fun (#get_peers_search{info_hash = InfoHash, last_changed = LastChanged}, StateAcc) ->
         case erline_dht_helper:datetime_diff(erline_dht_helper:local_time(), LastChanged) < ?GET_PEERS_SEARCH_TTL of
             true  ->
-                ok;
+                StateAcc;
             false ->
+                NewStateAcc = insert_info_hash(InfoHash, StateAcc),
                 true = DbMod:delete_get_peers_search(InfoHash),
-                true = DbMod:delete_requested_nodes(InfoHash)
+                true = DbMod:delete_requested_nodes(InfoHash),
+                NewStateAcc
         end
-    end, DbMod:get_all_get_peers_searches()).
+    end, State, DbMod:get_all_get_peers_searches()).
 
 
 %%  @private
