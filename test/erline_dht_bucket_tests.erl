@@ -1311,7 +1311,7 @@ handle_response_generic_test_() ->
                             }
                         ]
                     },
-                    erline_dht_bucket:handle_response_generic({12,34,92,155}, 6862, <<"n3w_n0d3_h45h1">>, [{ping, <<0,2>>}], Bucket, State)
+                    erline_dht_bucket:handle_response_generic({12,34,92,155}, 6862, <<"n3w_n0d3_h45h1">>, [{ping, <<0,2>>}], Bucket, true, State)
                 ),
                 ?assertEqual(
                     2,

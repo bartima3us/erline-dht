@@ -51,7 +51,7 @@
     do_ping_async/3,
     do_find_node_async/4,
     do_get_peers_async/4,
-    handle_response_generic/6,
+    handle_response_generic/7,
     get_bucket_and_node/3,
     update_tx_id/1,
     update_node/4,
@@ -700,7 +700,7 @@ handle_ping_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State) ->
         event_mgr_pid = EventMgrPid
     } = State,
     ok = erline_dht_helper:notify(EventMgrPid, {ping, r, Ip, Port, NewNodeHash}),
-    handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State).
+    handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, true, State).
 
 
 %%  @private
@@ -757,7 +757,7 @@ handle_find_node_response(Ip, Port, NewNodeHash, Nodes, NewActiveTx, Bucket, Sta
         % Can't assume that node we got is live so we need to ping it.
         ok = add_node(FoundIp, FoundPort, FoundedHash)
     end, Nodes),
-    handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State).
+    handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, false, State).
 
 
 %%  @private
@@ -818,8 +818,8 @@ handle_get_peers_query(Ip, Port, NodeHash, InfoHash, ReceivedTxId, State) ->
     State           :: #state{}
 ) -> NewState :: #state{}.
 
-handle_get_peers_response(Ip, Port, GetPeersResp, _NewActiveTx, _Bucket, State) ->
-    {What, _NewNodeHash, TxId, NodesOrPeers, Token} = GetPeersResp,
+handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
+    {What, NewNodeHash, TxId, NodesOrPeers, Token} = GetPeersResp,
     #state{
         event_mgr_pid = EventMgrPid,
         db_mod        = DbMod
@@ -857,7 +857,8 @@ handle_get_peers_response(Ip, Port, GetPeersResp, _NewActiveTx, _Bucket, State) 
                     State
             end
     end,
-    update_node(Ip, Port, [{token_received, Token}], NewState0). % @todo use handle_response_generic as last function
+    NewState1 = update_node(Ip, Port, [{token_received, Token}], NewState0),
+    handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, false, NewState1).
 
 
 %%  @private
@@ -925,7 +926,7 @@ handle_announce_peer_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State)
         event_mgr_pid = EventMgrPid
     } = State,
     ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, r, Ip, Port, NewNodeHash}),
-    handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State).
+    handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, false, State).
 
 
 %%%===================================================================
@@ -1024,16 +1025,17 @@ do_get_peers_async(Bucket, Node = #node{ip_port = {Ip, Port}}, InfoHash, State =
 %%  @doc
 %%  Generic node and bucket update function for all responses.
 %%  @end
--spec handle_response_generic( % @todo makes network congestion in get_peers case
+-spec handle_response_generic(
     Ip          :: inet:ip_address(),
     Port        :: inet:port_number(),
     NewNodeHash :: binary(),
     NewActiveTx :: [active_tx()],
     Bucket      :: #bucket{} | false,
+    DoFindNodes :: boolean(),
     State       :: #state{}
 ) -> NewState :: #state{}.
 
-handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State = #state{my_node_hash  = MyNodeHash}) ->
+handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, DoFindNodes, State = #state{my_node_hash  = MyNodeHash}) ->
     case erline_dht_helper:get_distance(MyNodeHash, NewNodeHash) of
         {ok, NewDist} ->
             Params = [
@@ -1058,8 +1060,10 @@ handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State = #sta
                 % Not assigned to the bucket
                 false ->
                     NewState0 = update_node(Ip, Port, [{active_txs, NewActiveTx}], State),
-                    % Actually relevant for ping only
-                    {ok, NewState1} = do_find_node_async(Ip, Port, MyNodeHash, NewState0),
+                    {ok, NewState1} = case DoFindNodes of
+                        true  -> do_find_node_async(Ip, Port, MyNodeHash, NewState0); % Relevant for ping only
+                        false -> {ok, NewState0}
+                    end,
                     case maybe_clear_bucket(NewDist, NewState1) of
                         {true, NewState2}  -> update_node(Ip, Port, Params ++ [{assign, NewDist}], NewState2);
                         % No free space in the bucket.
