@@ -562,10 +562,10 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         {error, {non_existing_tx, _TxId}} ->
             State;
         {error, {bad_args, _BadArgs, ReceivedTxId}} ->
-            erline_dht_message:respond_error(Socket, Ip, Port, ReceivedTxId, 203, <<"Invalid Arguments">>),
+            erline_dht_message:respond_error(Socket, Ip, Port, ReceivedTxId, 203, <<"Invalid arguments">>),
             State;
         {error, {bad_query, _BadQuery, ReceivedTxId}} ->
-            erline_dht_message:respond_error(Socket, Ip, Port, ReceivedTxId, 204, <<"Method Unknown">>),
+            erline_dht_message:respond_error(Socket, Ip, Port, ReceivedTxId, 204, <<"Method unknown">>),
             State;
         {error, {bad_response, _BadResponse}} ->
             State
@@ -853,8 +853,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
                     lists:foldl(fun (#{ip := FoundIp, port := FoundPort}, StateAcc) ->
                         ok = add_node_without_ping(FoundIp, FoundPort),
                         add_peer(InfoHash, FoundIp, FoundPort, StateAcc)
-                    end, State, NodesOrPeers),
-                    State
+                    end, State, NodesOrPeers)
             end
     end,
     NewState1 = update_node(Ip, Port, [{token_received, Token}], NewState0),
@@ -884,7 +883,10 @@ handle_announce_peer_query(Ip, NodePort, NodeHash, ImpliedPort, InfoHash, PeerPo
         event_mgr_pid = EventMgrPid,
         valid_tokens  = ValidTokens
     } = State,
-    ok = erline_dht_helper:notify(EventMgrPid, {announce_peer, q, Ip, NodePort, {ImpliedPort, InfoHash, PeerPort, ReceivedToken}}),
+    ok = case ImpliedPort of
+        0 -> erline_dht_helper:notify(EventMgrPid, {announce_peer, q, Ip, NodePort, {NodeHash, InfoHash, PeerPort, ReceivedToken}});
+        _ -> erline_dht_helper:notify(EventMgrPid, {announce_peer, q, Ip, NodePort, {NodeHash, InfoHash, NodePort, ReceivedToken}})
+    end,
     SentToken = case get_bucket_and_node(Ip, NodePort, State) of
         {ok, _, #node{token_sent = TokenSent}} -> TokenSent;
         _ -> undefined
@@ -1142,7 +1144,7 @@ update_tx_id(Node = #node{tx_id = LastTxIdBin}) ->
                 {active_txs, [ActiveTx :: active_tx()]} |
                 tx_id |
                 {status, Status :: status()} |
-                {assign, Dist :: distance()} |
+                {assign, Distance :: distance()} |
                 unassign],
     State   :: #state{}
 ) -> NewState :: #state{}.

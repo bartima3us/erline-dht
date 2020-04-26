@@ -166,7 +166,7 @@ Received get_peers response with peers list from the node:
 * ```{get_peers, r, Ip :: inet:ip_address(), Port :: inet:port_number(), {peers, NodeHash :: binary(), InfoHash :: binary(), Peers :: [#{ip => inet:ip_address(), port => inet:port_number()}]}}```
 
 Received announce_peer query from the node:
-* ```{announce_peer, q, Ip :: inet:ip_address(), Port :: inet:port_number(), {NodeHash :: binary(), ImpliedPort :: 0 | 1, InfoHash :: binary(), PeerPort :: inet:port_number(), Token :: binary()}}```
+* ```{announce_peer, q, Ip :: inet:ip_address(), Port :: inet:port_number(), {NodeHash :: binary(), InfoHash :: binary(), PeerPort :: inet:port_number(), Token :: binary()}}```
 
 Received announce_peer response from the node:
 * ```{announce_peer, r, Ip :: inet:ip_address(), Port :: inet:port_number(), NodeHash :: binary()}```

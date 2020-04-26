@@ -1324,7 +1324,7 @@ handle_response_generic_test_() ->
                 ok = meck:reset(erline_dht_helper)
             end
         },
-        {"Generic handler. Handle response. Bucket is found. Distance stay the same.",
+        {"Generic handler. Handle response. Bucket is found. Distance stay the same. Do find_nodes.",
             fun() ->
                 ?assertEqual(
                     #state{
@@ -1369,7 +1369,7 @@ handle_response_generic_test_() ->
                             }
                         ]
                     },
-                    erline_dht_bucket:handle_response_generic({12,34,92,155}, 6862, <<"n3w_n0d3_h45h2">>, [{ping, <<0,2>>}], Bucket, State)
+                    erline_dht_bucket:handle_response_generic({12,34,92,155}, 6862, <<"n3w_n0d3_h45h2">>, [{ping, <<0,2>>}], Bucket, true, State)
                 ),
                 ?assertEqual(
                     2,
@@ -1382,7 +1382,7 @@ handle_response_generic_test_() ->
                 ok = meck:reset(erline_dht_helper)
             end
         },
-        {"Generic handler. Handle response. Bucket is found. Distance is different from the old one. Bucket has some free space.",
+        {"Generic handler. Handle response. Bucket is found. Distance is different from the old one. Bucket has some free space. Do find_nodes.",
             fun() ->
                 ?assertEqual(
                     #state{
@@ -1427,7 +1427,7 @@ handle_response_generic_test_() ->
                             }
                         ]
                     },
-                    erline_dht_bucket:handle_response_generic({12,34,92,155}, 6862, <<"n3w_n0d3_h45h3">>, [{ping, <<0,2>>}], Bucket, State)
+                    erline_dht_bucket:handle_response_generic({12,34,92,155}, 6862, <<"n3w_n0d3_h45h3">>, [{ping, <<0,2>>}], Bucket, true, State)
                 ),
                 ?assertEqual(
                     2,
@@ -1440,7 +1440,7 @@ handle_response_generic_test_() ->
                 ok = meck:reset(erline_dht_helper)
             end
         },
-        {"Generic handler. Handle response. Bucket is found. Distance is different from the old one. Bucket has no free space.",
+        {"Generic handler. Handle response. Bucket is found. Distance is different from the old one. Bucket has no free space. Do find_nodes.",
             fun() ->
                 ?assertEqual(
                     #state{
@@ -1476,7 +1476,7 @@ handle_response_generic_test_() ->
                             }
                         ]
                     },
-                    erline_dht_bucket:handle_response_generic({12,34,92,155}, 6862, <<"n3w_n0d3_h45h4">>, [{ping, <<0,2>>}], Bucket, State)
+                    erline_dht_bucket:handle_response_generic({12,34,92,155}, 6862, <<"n3w_n0d3_h45h4">>, [{ping, <<0,2>>}], Bucket, true, State)
                 ),
                 ?assertEqual(
                     2,
@@ -1493,7 +1493,7 @@ handle_response_generic_test_() ->
                 ok = meck:reset([erline_dht_helper, erline_dht_db_ets])
             end
         },
-        {"Generic handler. Handle response. Bucket is not found. Bucket has some free space.",
+        {"Generic handler. Handle response. Bucket is not found. Bucket has some free space. Do not need to do find_nodes.",
             fun() ->
                 ?assertEqual(
                     #state{
@@ -1542,7 +1542,7 @@ handle_response_generic_test_() ->
                             }
                         ]
                     },
-                    erline_dht_bucket:handle_response_generic({12,34,92,185}, 6882, <<"n3w_n0d3_h45h5">>, [{ping, <<0,2>>}], false, State)
+                    erline_dht_bucket:handle_response_generic({12,34,92,185}, 6882, <<"n3w_n0d3_h45h5">>, [{ping, <<0,2>>}], false, false, State)
                 ),
                 ?assertEqual(
                     2,
@@ -1553,7 +1553,7 @@ handle_response_generic_test_() ->
                     meck:num_calls(erline_dht_helper, local_time, [])
                 ),
                 ?assertEqual(
-                    2,
+                    1,
                     meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_'])
                 ),
                 ?assertEqual(
@@ -1561,17 +1561,17 @@ handle_response_generic_test_() ->
                     meck:num_calls(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, [{12,34,92,185}, 6882])
                 ),
                 ?assertEqual(
-                    1,
+                    0,
                     meck:num_calls(erline_dht_message, send_find_node, [{12,34,92,185}, 6882, sock, <<0,0>>, <<"h45h">>, <<"h45h">>])
                 ),
                 ok = meck:reset([erline_dht_helper, erline_dht_db_ets, erline_dht_message])
             end
         },
-        {"Generic handler. Handle response. Bucket is not found. Bucket has no free space.",
+        {"Generic handler. Handle response. Bucket is not found. Bucket has no free space. Do not need to do find_nodes.",
             fun() ->
                 ?assertEqual(
                     State,
-                    erline_dht_bucket:handle_response_generic({12,34,92,186}, 6883, <<"n3w_n0d3_h45h6">>, [{ping, <<0,2>>}], false, State)
+                    erline_dht_bucket:handle_response_generic({12,34,92,186}, 6883, <<"n3w_n0d3_h45h6">>, [{ping, <<0,2>>}], false, false, State)
                 ),
                 ?assertEqual(
                     2,
@@ -1582,7 +1582,7 @@ handle_response_generic_test_() ->
                     meck:num_calls(erline_dht_helper, local_time, [])
                 ),
                 ?assertEqual(
-                    3,
+                    2,
                     meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_'])
                 ),
                 ?assertEqual(
@@ -1590,7 +1590,7 @@ handle_response_generic_test_() ->
                     meck:num_calls(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, [{12,34,92,186}, 6883])
                 ),
                 ?assertEqual(
-                    1,
+                    0,
                     meck:num_calls(erline_dht_message, send_find_node, [{12,34,92,186}, 6883, sock, <<0,0>>, <<"h45h">>, <<"h45h">>])
                 )
             end
