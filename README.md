@@ -104,6 +104,11 @@ Return event manager pid:
 erline_dht:get_event_mgr_pid() -> EventMgrPid :: pid()
 ```
 
+Set peer port. If port is set, it will be used as your port in `announce_peer` request. Otherwise ErLine DHT node port will be used as your peer port. Default: atom `undefined` (not set):
+```
+erline_dht:set_peer_port(Port :: inet:port_number()) -> ok
+```
+
 ## <a name="config">Config</a> ##
 
 Default sys.config:

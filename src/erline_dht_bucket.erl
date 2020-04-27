@@ -26,7 +26,8 @@
     get_all_nodes_in_bucket/1,
     get_not_assigned_nodes/0,
     get_not_assigned_nodes/1,
-    get_buckets_filling/0
+    get_buckets_filling/0,
+    set_peer_port/1
 ]).
 
 %% gen_server callbacks
@@ -51,6 +52,7 @@
     do_ping_async/3,
     do_find_node_async/4,
     do_get_peers_async/4,
+    do_announce_peer_async/5,
     handle_response_generic/7,
     get_bucket_and_node/3,
     update_tx_id/1,
@@ -109,7 +111,8 @@
     db_mod                              :: module(),
     event_mgr_pid                       :: pid(),
     not_assigned_clearing_threshold     :: pos_integer(), % Not assigned nodes
-    valid_tokens                = []    :: [binary()]
+    valid_tokens                = []    :: [binary()],
+    peer_port                           :: inet:port_number()
 }).
 
 %%%===================================================================
@@ -272,6 +275,17 @@ get_buckets_filling() ->
     gen_server:call(?SERVER, get_buckets_filling).
 
 
+%%  @doc
+%%  Set peer port.
+%%  @end
+-spec set_peer_port(
+    Port :: inet:port_number()
+) -> ok.
+
+set_peer_port(Port) ->
+    gen_server:call(?SERVER, {set_peer_port, Port}).
+
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -403,8 +417,8 @@ handle_call(get_buckets_filling, _From, State = #state{buckets = Buckets}) ->
     end, Buckets),
     {reply, Response, State};
 
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+handle_call({set_peer_port, Port}, _From, State = #state{}) ->
+    {reply, ok, State#state{peer_port = Port}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -992,7 +1006,7 @@ do_find_node_async(Bucket, Node = #node{ip_port = {Ip, Port}}, Target, State = #
 
 %%  @private
 %%  @doc
-%%  Send ping request.
+%%  Send get_peers request.
 %%  Do not wait for response.
 %%  @end
 -spec do_get_peers_async(
@@ -1016,6 +1030,46 @@ do_get_peers_async(Bucket, Node = #node{ip_port = {Ip, Port}}, InfoHash, State =
     NewState = update_node(Bucket, Node, Params, State),
     ok = erline_dht_message:send_get_peers(Ip, Port, Socket, TxId, MyNodeHash, InfoHash),
     {ok, TxId, NewState}.
+
+
+%%  @private
+%%  @doc
+%%  Send announce_peer request.
+%%  Do not wait for response.
+%%  @end
+-spec do_announce_peer_async(   % @todo tests
+    Ip       :: inet:ip_address(),
+    Port     :: inet:port_number(),
+    InfoHash :: binary(),
+    Token    :: binary(),
+    State    :: #state{}
+) -> {ok, NewState :: #state{}}.
+
+do_announce_peer_async(Ip, Port, InfoHash, Token, State = #state{}) when is_tuple(Ip), is_integer(Port) ->
+    {ok, Bucket, Node} = get_bucket_and_node(Ip, Port, State),
+    do_announce_peer_async(Bucket, Node, InfoHash, Token, State);
+
+do_announce_peer_async(Bucket, Node = #node{ip_port = {Ip, Port}}, InfoHash, Token, State = #state{}) ->
+    #state{
+        my_node_hash = MyNodeHash,
+        socket       = Socket,
+        peer_port    = PeerPort0
+    } = State,
+    #node{tx_id = TxId, active_txs = CurrActiveTx} = Node,
+    Params = [
+        tx_id,
+        {active_txs, [{announce_peer, TxId} | CurrActiveTx]}
+    ],
+    NewState = update_node(Bucket, Node, Params, State),
+    {PeerPort, ImpliedPort} = case PeerPort0 of
+        undefined -> 
+            {ok, NodePort} = inet:port(Socket),
+            {NodePort, 1};
+        PeerPort0  ->
+            {PeerPort0, 0}
+    end,
+    ok = erline_dht_message:send_announce_peer(Ip, Port, Socket, TxId, MyNodeHash, InfoHash, ImpliedPort, PeerPort, Token),
+    {ok, NewState}.
 
 
 %%%===================================================================
@@ -1438,18 +1492,18 @@ add_peer(InfoHashBin, Ip, Port, State = #state{info_hashes = InfoHashes}) ->
 insert_info_hash(InfoHash, State = #state{db_mod = DbMod, k = K}) ->
     NodesWithDist = lists:foldl(fun (#requested_node{ip_port = {Ip, Port}}, AccNodes) ->
             case get_bucket_and_node(Ip, Port, State) of
-                {ok, _, #node{hash = NodeHash}} ->
+                {ok, _, #node{hash = NodeHash, token_received = TokenReceived}} ->
                     case erline_dht_helper:get_distance(InfoHash, NodeHash) of
-                        {ok, Distance}   -> [{Distance, {Ip, Port}, NodeHash} | AccNodes];
+                        {ok, Distance}   -> [{Distance, {Ip, Port}, TokenReceived} | AccNodes];
                         {error, _Reason} -> AccNodes
                     end;
                 false ->
                     AccNodes
             end
     end, [], DbMod:get_requested_nodes(InfoHash)),
-    lists:foldl(fun (_, StateAcc) ->
-        % @todo send announce_peer
-        StateAcc
+    lists:foldl(fun ({_, {Ip, Port}, TokenReceived}, StateAcc) ->
+        {ok, NewStateAcc} = do_announce_peer_async(Ip, Port, InfoHash, TokenReceived, StateAcc),
+        NewStateAcc
     end, State, lists:sublist(lists:usort(NodesWithDist), K)).
 
 

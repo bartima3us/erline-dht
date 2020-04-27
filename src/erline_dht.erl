@@ -20,6 +20,7 @@
     get_not_assigned_nodes/1,
     get_buckets_filling/0,
     get_port/0,
+    set_peer_port/1,
     get_event_mgr_pid/0
 ]).
 
@@ -171,6 +172,17 @@ get_buckets_filling() ->
 
 get_port() ->
     erline_dht_bucket:get_port().
+
+
+%%  @doc
+%%  Set peer port.
+%%  @end
+-spec set_peer_port(
+    Port :: inet:port_number()
+) -> ok.
+
+set_peer_port(Port) ->
+    erline_dht_bucket:set_peer_port(Port).
 
 
 %%  @doc

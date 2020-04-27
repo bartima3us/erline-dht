@@ -17,6 +17,7 @@
     respond_find_node/6,
     send_get_peers/6,
     respond_get_peers/7,
+    send_announce_peer/9,
     respond_announce_peer/5,
     respond_error/6,
     parse_krpc_response/2
@@ -148,6 +149,26 @@ send_get_peers(Ip, Port, Socket, TxId, MyNodeHash, InfoHash) ->
 
 respond_get_peers(Ip, Port, Socket, TxId, MyNodeHash, Token, NodesOrPeers) ->
     Payload = get_peers_response(TxId, MyNodeHash, Token, NodesOrPeers),
+    ok = socket_send(Socket, Ip, Port, Payload).
+
+
+%%  @doc
+%%  Create `announce_peer` request and send it.
+%%  @end
+-spec send_announce_peer( % @todo tests
+    Ip          :: inet:ip_address(),
+    Port        :: inet:port_number(),
+    Socket      :: port(),
+    TxId        :: tx_id(),
+    MyNodeHash  :: binary(),
+    InfoHash    :: binary(),
+    ImpliedPort :: 0 | 1,
+    PeerPort    :: inet:port_number(),
+    Token       :: binary()
+) -> ok.
+
+send_announce_peer(Ip, Port, Socket, TxId, MyNodeHash, InfoHash, ImpliedPort, PeerPort, Token) ->
+    Payload = announce_peer_request(TxId, MyNodeHash, ImpliedPort, InfoHash, PeerPort, Token),
     ok = socket_send(Socket, Ip, Port, Payload).
 
 
