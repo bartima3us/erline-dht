@@ -62,7 +62,8 @@
     db_mod                              :: module(),
     event_mgr_pid                       :: pid(),
     not_assigned_clearing_threshold     :: pos_integer(),
-    valid_tokens                = []    :: [binary()]
+    valid_tokens                = []    :: [binary()],
+    peer_port                           :: inet:port_number()
 }).
 
 -define(NODES_LIST, [

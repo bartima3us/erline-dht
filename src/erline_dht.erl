@@ -12,6 +12,9 @@
 -export([
     get_env/1,
     get_env/2,
+    start_node/0,
+    start_node/1,
+    stop_node/0,
     add_node/2,
     get_peers/1,
     get_peers/3,
@@ -76,6 +79,27 @@ get_env(Var) ->
 
 get_env(Var, Default) ->
     application:get_env(?APP, Var, Default).
+
+
+%%  @doc
+%%  Explicitly start ErLine DHT node.
+%%  @end
+start_node() ->
+    erline_dht_sup:start().
+
+
+%%  @doc
+%%  Explicitly start ErLine DHT node on the specified port.
+%%  @end
+start_node(Port) ->
+    erline_dht_sup:start(Port).
+
+
+%%  @doc
+%%  Stop ErLine DHT node.
+%%  @end
+stop_node() ->
+    erline_dht_sup:stop().
 
 
 %%  @doc

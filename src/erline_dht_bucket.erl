@@ -14,7 +14,7 @@
 
 %% API
 -export([
-    start_link/0,
+    start_link/1,
     add_node/2,
     add_node_without_ping/2,
     add_node/3,
@@ -27,7 +27,8 @@
     get_not_assigned_nodes/0,
     get_not_assigned_nodes/1,
     get_buckets_filling/0,
-    set_peer_port/1
+    set_peer_port/1,
+    stop/0
 ]).
 
 %% gen_server callbacks
@@ -124,10 +125,12 @@
 %% Starts the server
 %% @end
 %%--------------------------------------------------------------------
--spec start_link() -> {ok, Pid :: pid()} | ignore | {error, Reason :: term()}.
+-spec start_link(
+    Port :: inet:port_number() | undefined
+) -> {ok, Pid :: pid()} | ignore | {error, Reason :: term()}.
 
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+start_link(Port) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [Port], []).
 
 
 %%  @doc
@@ -286,6 +289,15 @@ set_peer_port(Port) ->
     gen_server:call(?SERVER, {set_peer_port, Port}).
 
 
+%%  @doc
+%%  Stop the process
+%%  @end
+-spec stop() -> ok.
+
+stop() ->
+    gen_server:stop(?SERVER).
+
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -301,14 +313,20 @@ set_peer_port(Port) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([]) ->
+init([PortArg]) ->
     % Get my node hash
     MyNodeHash = get_my_node_hash(),
     % Open UDP socket
     SocketParams = [binary, {active, true}],
-    {ok, Socket} = case gen_udp:open(erline_dht:get_env(port, 0), SocketParams) of
-        {ok, SockPort}      -> {ok, SockPort};
-        {error, eaddrinuse} -> gen_udp:open(0, SocketParams)
+    OpenSocketFun = fun (Port) ->
+        case gen_udp:open(Port, SocketParams) of
+            {ok, SockPort}      -> {ok, SockPort};
+            {error, eaddrinuse} -> gen_udp:open(0, SocketParams)
+        end
+    end,
+    {ok, Socket} = case PortArg of
+        undefined -> OpenSocketFun(erline_dht:get_env(port, 0));
+        PortArg   -> OpenSocketFun(PortArg)
     end,
     % Create buckets
     Buckets = lists:foldl(fun (Distance, AccBuckets) ->

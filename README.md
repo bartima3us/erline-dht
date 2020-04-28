@@ -26,6 +26,22 @@ Derivative project from https://github.com/bartima3us/erl-bittorrent
 
 ## <a name="usage">Usage</a> ##
 
+Start ErLine DHT node explicitly. Should be used only when `{auto_start, false}` in sys.config. If node port is specified, node will try to start on that port. Otherwise port will be taken from sys.config or will be selected randomly.
+```
+erline_dht:start_node() -> ok
+```
+and
+```
+erline_dht:start_node(
+    Port :: inet:port_number()
+) -> ok
+```
+
+Stop ErLine DHT node:
+```
+erline_dht:stop_node() -> ok
+```
+
 Add a new node with unknown hash to the bucket:
 ```
 erline_dht:add_node_to_bucket(
@@ -106,7 +122,9 @@ erline_dht:get_event_mgr_pid() -> EventMgrPid :: pid()
 
 Set peer port. If port is set, it will be used as your port in `announce_peer` request. Otherwise ErLine DHT node port will be used as your peer port. Default: atom `undefined` (not set):
 ```
-erline_dht:set_peer_port(Port :: inet:port_number()) -> ok
+erline_dht:set_peer_port(
+    Port :: inet:port_number()
+) -> ok
 ```
 
 ## <a name="config">Config</a> ##
@@ -114,6 +132,7 @@ erline_dht:set_peer_port(Port :: inet:port_number()) -> ok
 Default sys.config:
 ```
     {erline_dht, [
+        {auto_start, true},
         {auto_bootstrap_nodes, [
             {"router.bittorrent.com", 6881},
             {"dht.transmissionbt.com", 6881},
@@ -129,6 +148,7 @@ Default sys.config:
     ]}
 ```
 
+* ```auto_start``` - Whether start node on application start or not. If `false` - node must be started explicitly with `erline_dht:start_node/0` or `erline_dht:start_node/1` function.
 * ```auto_bootstrap_nodes``` - List of initial nodes and their port used in bootstrapping process just after ErLineDHT start.
 * ```db_mod``` - Module used for database queries encapsulation. ErLineDHT uses ETS by default but it can be easily changed by another engine.
 * ```limit_nodes``` - If `true` - ErLine DHT will clear some old nodes from time to time. If `false` - ErLine DHT will keep all known nodes. **Warning!** Since there are approximately 10-25 million of Mainline DHT network users, keeping all nodes may consume a lot of memory.
