@@ -63,6 +63,7 @@
     find_n_closest_nodes/5,
     find_local_peers_by_info_hash/2,
     add_peer/4,
+    insert_info_hash/2,
     check_searches/1,
     update_tokens/1,
     update_bucket_nodes_status/2,
@@ -1502,7 +1503,7 @@ add_peer(InfoHashBin, Ip, Port, State = #state{info_hashes = InfoHashes}) ->
 %%  @doc
 %%  Insert the peer contact information for itself onto the responding nodes with IDs closest to the infohash of the file.
 %%  @end
--spec insert_info_hash( % @todo test
+-spec insert_info_hash(
     InfoHash :: binary(),
     State    :: #state{}
 ) -> NewState :: #state{}.

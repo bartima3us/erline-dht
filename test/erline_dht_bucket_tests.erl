@@ -2264,6 +2264,103 @@ add_peer_test_() ->
 %%
 %%
 %%
+insert_info_hash_test_() ->
+    {ok, Socket} = gen_udp:open(0),
+    State = #state{
+        db_mod = erline_dht_db_ets,
+        k      = 3,
+        socket = Socket
+    },
+    {setup,
+        fun() ->
+            ok = meck:new([erline_dht_db_ets, erline_dht_helper, erline_dht_message]),
+            ok = meck:expect(erline_dht_db_ets, get_requested_nodes, fun
+                (<<"1nf0_h45h1">>) ->
+                    [];
+                (<<"1nf0_h45h2">>) ->
+                    [
+                        #requested_node{ip_port = {{12,34,92,156}, 6863}},
+                        #requested_node{ip_port = {{12,34,92,157}, 6864}},
+                        #requested_node{ip_port = {{12,34,92,158}, 6865}},
+                        #requested_node{ip_port = {{12,34,92,159}, 6866}},
+                        #requested_node{ip_port = {{12,34,92,160}, 6867}}
+                    ]
+            end),
+            ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, fun
+                ({12,34,92,156}, 6863) -> [#node{ip_port = {{12,34,92,156}, 6863}, hash = <<"h45h1">>}];
+                ({12,34,92,157}, 6864) -> [#node{ip_port = {{12,34,92,157}, 6864}, hash = <<"h45h2">>}];
+                ({12,34,92,158}, 6865) -> [#node{ip_port = {{12,34,92,158}, 6865}, hash = <<"h45h3">>}];
+                ({12,34,92,159}, 6866) -> [#node{ip_port = {{12,34,92,159}, 6866}, hash = <<"f4l53_h45h">>}];
+                ({12,34,92,160}, 6867) -> []
+            end),
+            ok = meck:expect(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_'], true),
+            ok = meck:expect(erline_dht_helper, get_distance, fun
+                (<<"1nf0_h45h2">>, <<"f4l53_h45h">>) -> {error, {malformed_hashes, <<"1nf0_h45h2">>, <<"f4l53_h45h">>}};
+                (<<"1nf0_h45h2">>, <<"h45h1">>)      -> {ok, 1};
+                (<<"1nf0_h45h2">>, <<"h45h2">>)      -> {ok, 2};
+                (<<"1nf0_h45h2">>, <<"h45h3">>)      -> {ok, 3}
+            end),
+            ok = meck:expect(erline_dht_message, send_announce_peer, ['_', '_', '_', '_', '_', '_', '_', '_', '_'], ok)
+        end,
+        fun(_) ->
+            true = meck:validate([erline_dht_db_ets, erline_dht_helper, erline_dht_message]),
+            ok = meck:unload([erline_dht_db_ets, erline_dht_helper, erline_dht_message])
+        end,
+        [{"Requested nodes not found.",
+            fun() ->
+                ?assertEqual(
+                    State,
+                    erline_dht_bucket:insert_info_hash(<<"1nf0_h45h1">>, State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, get_requested_nodes, [<<"1nf0_h45h1">>])
+                ),
+                ?assertEqual(
+                    0,
+                    meck:num_calls(erline_dht_helper, get_distance, ['_', '_'])
+                ),
+                ?assertEqual(
+                    0,
+                    meck:num_calls(erline_dht_message, send_announce_peer, ['_', '_', '_', '_', '_', '_', '_', '_', '_'])
+                ),
+                ok = meck:reset(erline_dht_db_ets)
+            end
+        },
+        {"Requested nodes found.",
+            fun() ->
+                ?assertEqual(
+                    State,
+                    erline_dht_bucket:insert_info_hash(<<"1nf0_h45h2">>, State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, get_requested_nodes, [<<"1nf0_h45h2">>])
+                ),
+                ?assertEqual(
+                    4,
+                    meck:num_calls(erline_dht_helper, get_distance, ['_', '_'])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_message, send_announce_peer, [{12,34,92,156}, 6863, '_', '_', '_', '_', '_', '_', '_'])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_message, send_announce_peer, [{12,34,92,157}, 6864, '_', '_', '_', '_', '_', '_', '_'])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_message, send_announce_peer, [{12,34,92,158}, 6865, '_', '_', '_', '_', '_', '_', '_'])
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
 check_searches_test_() ->
     State = #state{
         db_mod = erline_dht_db_ets,
