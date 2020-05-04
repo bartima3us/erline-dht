@@ -1056,7 +1056,7 @@ do_get_peers_async(Bucket, Node = #node{ip_port = {Ip, Port}}, InfoHash, State =
 %%  Send announce_peer request.
 %%  Do not wait for response.
 %%  @end
--spec do_announce_peer_async(   % @todo tests
+-spec do_announce_peer_async(
     Ip       :: inet:ip_address(),
     Port     :: inet:port_number(),
     InfoHash :: binary(),
@@ -1235,7 +1235,7 @@ update_node(Bucket, Node = #node{ip_port = {Ip, Port}}, Params, State = #state{}
     UpdatedNode = lists:foldl(fun
         ({hash, Hash}, AccNode) ->
             case erline_dht_helper:get_distance(MyNodeHash, Hash) of
-                % @todo assign automatically to Distance bucket
+                % Can not assigned automatically to new bucket because first we need to check if it has enough space
                 {ok, Distance}   -> AccNode#node{hash = Hash, distance = Distance};
                 {error, _Reason} -> AccNode#node{hash = Hash}
             end;

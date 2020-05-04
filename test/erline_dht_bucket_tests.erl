@@ -1199,6 +1199,110 @@ do_get_peers_async_test_() ->
 %%
 %%
 %%
+do_announce_peer_async_test_() ->
+    {ok, Socket} = gen_udp:open(0),
+    State = #state{
+        my_node_hash = <<"h45h">>,
+        socket       = Socket,
+        buckets      = [
+            #bucket{
+                distance = 1,
+                nodes    = [#node{ip_port = {{12,34,92,154}, 6861}}]
+            },
+            Bucket = #bucket{
+                distance = 2,
+                nodes    = [
+                    Node = #node{
+                        ip_port    = {{12,34,92,155}, 6862},
+                        tx_id      = <<0,2>>,
+                        active_txs = [{find_node, <<0,1>>}]
+                    },
+                    #node{ip_port = {{12,34,92,158}, 6865}}
+                ]
+            }
+        ]
+    },
+    {setup,
+        fun() ->
+            ok = meck:new(erline_dht_message),
+            ok = meck:expect(erline_dht_message, send_announce_peer, [{12,34,92,155}, 6862, Socket, <<0,2>>, <<"h45h">>, <<"1nf0h45h">>, '_', '_', <<"t0k3n">>], ok)
+        end,
+        fun(_) ->
+            true = meck:validate(erline_dht_message),
+            ok = meck:unload(erline_dht_message)
+        end,
+        [{"Send announce_peer request. Implied port is 1.",
+            fun() ->
+                ?assertEqual(
+                    {ok, #state{
+                        my_node_hash = <<"h45h">>,
+                        socket       = Socket,
+                        buckets      = [
+                            #bucket{
+                                distance = 1,
+                                nodes    = [#node{ip_port = {{12,34,92,154}, 6861}}]
+                            },
+                            #bucket{
+                                distance = 2,
+                                nodes    = [
+                                    #node{
+                                        ip_port    = {{12,34,92,155}, 6862},
+                                        tx_id      = <<0,3>>,
+                                        active_txs = [{announce_peer, <<0,2>>}, {find_node, <<0,1>>}]
+                                    },
+                                    #node{ip_port = {{12,34,92,158}, 6865}}
+                                ]
+                            }
+                        ]
+                    }},
+                    erline_dht_bucket:do_announce_peer_async(Bucket, Node, <<"1nf0h45h">>, <<"t0k3n">>, State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_message, send_announce_peer, [{12,34,92,155}, 6862, Socket, <<0,2>>, <<"h45h">>, <<"1nf0h45h">>, 1, '_', <<"t0k3n">>])
+                ),
+                ok = meck:reset(erline_dht_message)
+            end
+        },
+        {"Send announce_peer request. Implied port is 0.",
+            fun() ->
+                ?assertEqual(
+                    {ok, #state{
+                        my_node_hash = <<"h45h">>,
+                        socket       = Socket,
+                        peer_port    = 6881,
+                        buckets      = [
+                            #bucket{
+                                distance = 1,
+                                nodes    = [#node{ip_port = {{12,34,92,154}, 6861}}]
+                            },
+                            #bucket{
+                                distance = 2,
+                                nodes    = [
+                                    #node{
+                                        ip_port    = {{12,34,92,155}, 6862},
+                                        tx_id      = <<0,3>>,
+                                        active_txs = [{announce_peer, <<0,2>>}, {find_node, <<0,1>>}]
+                                    },
+                                    #node{ip_port = {{12,34,92,158}, 6865}}
+                                ]
+                            }
+                        ]
+                    }},
+                    erline_dht_bucket:do_announce_peer_async(Bucket, Node, <<"1nf0h45h">>, <<"t0k3n">>, State#state{peer_port = 6881})
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_message, send_announce_peer, [{12,34,92,155}, 6862, Socket, <<0,2>>, <<"h45h">>, <<"1nf0h45h">>, 0, 6881, <<"t0k3n">>])
+                )
+            end
+        }]
+    }.
+
+
+%%
+%%
+%%
 handle_response_generic_test_() ->
     State = #state{
         db_mod        = erline_dht_db_ets,
