@@ -155,7 +155,7 @@ respond_get_peers(Ip, Port, Socket, TxId, MyNodeHash, Token, NodesOrPeers) ->
 %%  @doc
 %%  Create `announce_peer` request and send it.
 %%  @end
--spec send_announce_peer( % @todo tests
+-spec send_announce_peer(
     Ip          :: inet:ip_address(),
     Port        :: inet:port_number(),
     Socket      :: port(),

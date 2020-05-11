@@ -12,19 +12,19 @@
 -export([
     get_env/1,
     get_env/2,
-    start_node/0,
     start_node/1,
-    stop_node/0,
-    add_node/2,
-    get_peers/1,
-    get_peers/3,
-    get_all_nodes_in_bucket/1,
-    get_not_assigned_nodes/0,
+    start_node/2,
+    stop_node/1,
+    add_node/3,
+    get_peers/2,
+    get_peers/4,
+    get_all_nodes_in_bucket/2,
     get_not_assigned_nodes/1,
-    get_buckets_filling/0,
-    get_port/0,
-    set_peer_port/1,
-    get_event_mgr_pid/0
+    get_not_assigned_nodes/2,
+    get_buckets_filling/1,
+    get_port/1,
+    set_peer_port/2,
+    get_event_mgr_pid/1
 ]).
 
 %% Application callbacks
@@ -84,64 +84,68 @@ get_env(Var, Default) ->
 %%  @doc
 %%  Explicitly start ErLine DHT node.
 %%  @end
-start_node() ->
-    erline_dht_sup:start().
+start_node(Name) ->
+    erline_dht_sup:start(Name).
 
 
 %%  @doc
 %%  Explicitly start ErLine DHT node on the specified port.
 %%  @end
-start_node(Port) ->
-    erline_dht_sup:start(Port).
+start_node(Name, Port) ->
+    erline_dht_sup:start(Name, Port).
 
 
 %%  @doc
 %%  Stop ErLine DHT node.
 %%  @end
-stop_node() ->
-    erline_dht_sup:stop().
+stop_node(Name) ->
+    erline_dht_bucket:stop(Name).
 
 
 %%  @doc
 %%  Add node with unknown hash to the bucket.
 %%  @end
 -spec add_node(
+    Name    :: atom(),
     Ip      :: inet:ip_address(),
     Port    :: inet:port_number()
 ) -> ok.
 
-add_node(Ip, Port) ->
-    erline_dht_bucket:add_node(Ip, Port).
+add_node(Name, Ip, Port) ->
+    erline_dht_bucket:add_node(Name, Ip, Port).
 
 
 %%  @doc
 %%  Try to find peers for the info hash in the network.
 %%  @end
 -spec get_peers(
+    Name     :: atom(),
     InfoHash :: binary()
 ) -> ok.
 
-get_peers(InfoHash) ->
-    erline_dht_bucket:get_peers(InfoHash).
+get_peers(Name, InfoHash) ->
+    erline_dht_bucket:get_peers(Name, InfoHash).
 
 
 %%  @doc
 %%  Try to get peers for the info hash from one node.
 %%  @end
 -spec get_peers(
+    Name     :: atom(),
     Ip       :: inet:ip_address(),
     Port     :: inet:port_number(),
     InfoHash :: binary()
 ) -> ok.
 
-get_peers(Ip, Port, InfoHash) ->
-    erline_dht_bucket:get_peers(Ip, Port, InfoHash).
+get_peers(Name, Ip, Port, InfoHash) ->
+    erline_dht_bucket:get_peers(Name, Ip, Port, InfoHash).
 
 
 %%  @doc
 %%  Return all nodes information in the bucket.
 %%  @end
 -spec get_all_nodes_in_bucket(
+    Name     :: atom(),
     Distance :: distance()
 ) -> [#{ip              => inet:ip_address(),
         port            => inet:port_number(),
@@ -149,75 +153,82 @@ get_peers(Ip, Port, InfoHash) ->
         status          => status(),
         last_changed    => calendar:datetime()}].
 
-get_all_nodes_in_bucket(Distance) ->
-    erline_dht_bucket:get_all_nodes_in_bucket(Distance).
+get_all_nodes_in_bucket(Name, Distance) ->
+    erline_dht_bucket:get_all_nodes_in_bucket(Name, Distance).
 
 
 %%  @doc
 %%  Return all not assigned nodes information.
 %%  @end
--spec get_not_assigned_nodes() ->
+-spec get_not_assigned_nodes(
+    Name    :: atom()
+) ->
     [#{ip              => inet:ip_address(),
        port            => inet:port_number(),
        hash            => binary(),
        last_changed    => calendar:datetime()}].
 
-get_not_assigned_nodes() ->
-    erline_dht_bucket:get_not_assigned_nodes().
+get_not_assigned_nodes(Name) ->
+    erline_dht_bucket:get_not_assigned_nodes(Name).
 
 
 %%  @doc
 %%  Return not assigned nodes information.
 %%  @end
 -spec get_not_assigned_nodes(
+    Name     :: atom(),
     Distance :: distance()
 ) -> [#{ip              => inet:ip_address(),
         port            => inet:port_number(),
         hash            => binary(),
         last_changed    => calendar:datetime()}].
 
-get_not_assigned_nodes(Distance) ->
-    erline_dht_bucket:get_not_assigned_nodes(Distance).
+get_not_assigned_nodes(Name, Distance) ->
+    erline_dht_bucket:get_not_assigned_nodes(Name, Distance).
 
 
 %%  @doc
 %%  Return amount of nodes in every bucket.
 %%  @end
--spec get_buckets_filling() -> [#{distance => distance(), nodes => non_neg_integer()}].
+-spec get_buckets_filling(
+    Name    :: atom()
+) -> [#{distance => distance(), nodes => non_neg_integer()}].
 
-get_buckets_filling() ->
-    erline_dht_bucket:get_buckets_filling().
+get_buckets_filling(Name) ->
+    erline_dht_bucket:get_buckets_filling(Name).
 
 
 %%  @doc
 %%  Return UDP socket port of the client.
 %%  @end
--spec get_port() -> Port :: inet:port_number().
+-spec get_port(
+    Name    :: atom()
+) -> Port :: inet:port_number().
 
-get_port() ->
-    erline_dht_bucket:get_port().
+get_port(Name) ->
+    erline_dht_bucket:get_port(Name).
 
 
 %%  @doc
 %%  Set peer port.
 %%  @end
 -spec set_peer_port(
-    Port :: inet:port_number()
+    Name    :: atom(),
+    Port    :: inet:port_number()
 ) -> ok.
 
-set_peer_port(Port) ->
-    erline_dht_bucket:set_peer_port(Port).
+set_peer_port(Name, Port) ->
+    erline_dht_bucket:set_peer_port(Name, Port).
 
 
 %%  @doc
 %%  Return event manager pid.
 %%  @end
--spec get_event_mgr_pid() -> EventMgrPid :: pid().
+-spec get_event_mgr_pid(
+    Name    :: atom()
+) -> EventMgrPid :: pid().
 
-get_event_mgr_pid() ->
-    erline_dht_bucket:get_event_mgr_pid().
+get_event_mgr_pid(Name) ->
+    erline_dht_bucket:get_event_mgr_pid(Name).
 
 
-%%====================================================================
-%% Internal functions
-%%====================================================================

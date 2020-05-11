@@ -11,19 +11,18 @@
 %% API
 -export([
     start_link/0,
-    start/0,
     start/1,
-    stop/0
+    start/2
 ]).
 
 %% Supervisor callbacks
 -export([init/1]).
 
 -define(SERVER, ?MODULE).
--define(ID, erline_dht_bucket).
--define(SPEC(Port), #{
-    id          => ?ID,
-    start       => {erline_dht_bucket, start_link, [Port]},
+-define(ID(Name), {erline_dht_bucket, Name}).
+-define(SPEC(Name, Port), #{
+    id          => ?ID(Name),
+    start       => {erline_dht_bucket, start_link, [Name, Port]},
     restart     => temporary,
     shutdown    => 5000,
     type        => worker,
@@ -44,14 +43,14 @@ start_link() ->
 %%
 %%
 %%
-start() ->
-    start(undefined).
+start(Name) ->
+    start(Name, undefined).
 
-start(Port) ->
+start(Name, Port) ->
     Children = supervisor:which_children(?MODULE),
-    case lists:keysearch(?ID, 1, Children) of
+    case lists:keysearch(?ID(Name), 1, Children) of
         false      ->
-            {ok, _} = supervisor:start_child(?MODULE, ?SPEC(Port)),
+            {ok, _} = supervisor:start_child(?MODULE, ?SPEC(Name, Port)),
             ok;
         {value, _} ->
             ok
@@ -59,19 +58,12 @@ start(Port) ->
 
 
 %%
-%%
-%%
-stop() ->
-    ok = erline_dht_bucket:stop().
-
-
-%%
 %% Child :: {Id,StartFunc,Restart,Shutdown,Type,Modules}
 %%
 init([]) ->
     Specs = case erline_dht:get_env(auto_start) of
-        true      -> [?SPEC(undefined)];
-        undefined -> [?SPEC(undefined)];
+        true      -> [?SPEC(node1, undefined)];
+        undefined -> [?SPEC(node1, undefined)];
         false     -> []
     end,
     {ok, { {one_for_one, 5, 10}, Specs} }.

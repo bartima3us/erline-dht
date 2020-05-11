@@ -14,21 +14,21 @@
 
 %% API
 -export([
-    start_link/1,
-    add_node/2,
-    add_node_without_ping/2,
+    start_link/2,
     add_node/3,
     add_node_without_ping/3,
-    get_peers/1,
-    get_peers/3,
-    get_port/0,
-    get_event_mgr_pid/0,
-    get_all_nodes_in_bucket/1,
-    get_not_assigned_nodes/0,
+    add_node/4,
+    add_node_without_ping/4,
+    get_peers/2,
+    get_peers/4,
+    get_port/1,
+    get_event_mgr_pid/1,
+    get_all_nodes_in_bucket/2,
     get_not_assigned_nodes/1,
-    get_buckets_filling/0,
-    set_peer_port/1,
-    stop/0
+    get_not_assigned_nodes/2,
+    get_buckets_filling/1,
+    set_peer_port/2,
+    stop/1
 ]).
 
 %% gen_server callbacks
@@ -73,7 +73,6 @@
 ]).
 -endif.
 
--define(SERVER, ?MODULE).
 -define(CHECK_NODE_TIMEOUT, 60000).
 -define(BUCKET_PING_LOW_TIME, 300000). % 6 min
 -define(BUCKET_PING_HIGH_TIME, 840000). % 12 min
@@ -102,6 +101,7 @@
 }).
 
 -record(state, {
+    name                                :: atom(), % Node name
     my_node_hash                        :: binary(),
     socket                              :: port(),
     k                                   :: pos_integer(),
@@ -127,23 +127,25 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec start_link(
+    Name :: atom(),
     Port :: inet:port_number() | undefined
 ) -> {ok, Pid :: pid()} | ignore | {error, Reason :: term()}.
 
-start_link(Port) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [Port], []).
+start_link(Name, Port) ->
+    gen_server:start_link({local, Name}, ?MODULE, [Name, Port], []).
 
 
 %%  @doc
 %%  Add node with unknown hash to the bucket.
 %%  @end
 -spec add_node(
+    Name    :: atom(),
     Ip      :: inet:ip_address(),
     Port    :: inet:port_number()
 ) -> ok.
 
-add_node(Ip, Port) ->
-    gen_server:cast(?SERVER, {add_node, Ip, Port, undefined, true}).
+add_node(Name, Ip, Port) ->
+    gen_server:cast(Name, {add_node, Ip, Port, undefined, true}).
 
 
 %%  @doc
@@ -151,25 +153,27 @@ add_node(Ip, Port) ->
 %%  Do not ping after addition.
 %%  @end
 -spec add_node_without_ping(
+    Name    :: atom(),
     Ip      :: inet:ip_address(),
     Port    :: inet:port_number()
 ) -> ok.
 
-add_node_without_ping(Ip, Port) ->
-    gen_server:cast(?SERVER, {add_node, Ip, Port, undefined, false}).
+add_node_without_ping(Name, Ip, Port) ->
+    gen_server:cast(Name, {add_node, Ip, Port, undefined, false}).
 
 
 %%  @doc
 %%  Add node with known hash to the bucket.
 %%  @end
 -spec add_node(
+    Name    :: atom(),
     Ip      :: inet:ip_address(),
     Port    :: inet:port_number(),
     Hash    :: binary()
 ) -> ok.
 
-add_node(Ip, Port, Hash) ->
-    gen_server:cast(?SERVER, {add_node, Ip, Port, Hash, true}).
+add_node(Name, Ip, Port, Hash) ->
+    gen_server:cast(Name, {add_node, Ip, Port, Hash, true}).
 
 
 %%  @doc
@@ -177,61 +181,69 @@ add_node(Ip, Port, Hash) ->
 %%  Do not ping after addition.
 %%  @end
 -spec add_node_without_ping(
+    Name    :: atom(),
     Ip      :: inet:ip_address(),
     Port    :: inet:port_number(),
     Hash    :: binary()
 ) -> ok.
 
-add_node_without_ping(Ip, Port, Hash) ->
-    gen_server:cast(?SERVER, {add_node, Ip, Port, Hash, false}).
+add_node_without_ping(Name, Ip, Port, Hash) ->
+    gen_server:cast(Name, {add_node, Ip, Port, Hash, false}).
 
 
 %%  @doc
 %%  Try to find peers for the info hash in the network.
 %%  @end
 -spec get_peers(
-    InfoHash :: binary()
+    Name        :: atom(),
+    InfoHash    :: binary()
 ) -> ok.
 
-get_peers(InfoHash) ->
-    gen_server:cast(?SERVER, {get_peers, undefined, undefined, InfoHash}).
+get_peers(Name, InfoHash) ->
+    gen_server:cast(Name, {get_peers, undefined, undefined, InfoHash}).
 
 
 %%  @doc
 %%  Try to get peers for the info hash from one node.
 %%  @end
 -spec get_peers(
+    Name     :: atom(),
     Ip       :: inet:ip_address(),
     Port     :: inet:port_number(),
     InfoHash :: binary()
 ) -> ok.
 
-get_peers(Ip, Port, InfoHash) ->
-    gen_server:cast(?SERVER, {get_peers, Ip, Port, InfoHash}).
+get_peers(Name, Ip, Port, InfoHash) ->
+    gen_server:cast(Name, {get_peers, Ip, Port, InfoHash}).
 
 
 %%  @doc
 %%  Return UDP socket port of the client.
 %%  @end
--spec get_port() -> Port :: inet:port_number().
+-spec get_port(
+    Name    :: atom()
+) -> Port :: inet:port_number().
 
-get_port() ->
-    gen_server:call(?SERVER, get_port).
+get_port(Name) ->
+    gen_server:call(Name, get_port).
 
 
 %%  @doc
 %%  Return event manager pid.
 %%  @end
--spec get_event_mgr_pid() -> EventMgrPid :: pid().
+-spec get_event_mgr_pid(
+    Name    :: atom()
+) -> EventMgrPid :: pid().
 
-get_event_mgr_pid() ->
-    gen_server:call(?SERVER, get_event_mgr_pid).
+get_event_mgr_pid(Name) ->
+    gen_server:call(Name, get_event_mgr_pid).
 
 
 %%  @doc
 %%  Return all nodes information.
 %%  @end
 -spec get_all_nodes_in_bucket(
+    Name     :: atom(),
     Distance :: distance()
 ) -> [#{ip              => inet:ip_address(),
         port            => inet:port_number(),
@@ -239,64 +251,72 @@ get_event_mgr_pid() ->
         status          => status(),
         last_changed    => calendar:datetime()}].
 
-get_all_nodes_in_bucket(Distance) ->
-    gen_server:call(?SERVER, {get_all_nodes_in_bucket, Distance}).
-
-
-%%  @doc
-%%  Return not assigned nodes information.
-%%  @end
--spec get_not_assigned_nodes() -> 
-    [#{ip              => inet:ip_address(),
-       port            => inet:port_number(),
-       hash            => binary(),
-       last_changed    => calendar:datetime()}].
-
-get_not_assigned_nodes() ->
-    gen_server:call(?SERVER, {get_not_assigned_nodes, undefined}, ?GET_NOT_ASSIGNED_NODES_CALL_TIMEOUT).
+get_all_nodes_in_bucket(Name, Distance) ->
+    gen_server:call(Name, {get_all_nodes_in_bucket, Distance}).
 
 
 %%  @doc
 %%  Return not assigned nodes information.
 %%  @end
 -spec get_not_assigned_nodes(
+    Name    :: atom()
+) ->
+    [#{ip              => inet:ip_address(),
+       port            => inet:port_number(),
+       hash            => binary(),
+       last_changed    => calendar:datetime()}].
+
+get_not_assigned_nodes(Name) ->
+    gen_server:call(Name, {get_not_assigned_nodes, undefined}, ?GET_NOT_ASSIGNED_NODES_CALL_TIMEOUT).
+
+
+%%  @doc
+%%  Return not assigned nodes information.
+%%  @end
+-spec get_not_assigned_nodes(
+    Name     :: atom(),
     Distance :: distance()
 ) -> [#{ip              => inet:ip_address(),
         port            => inet:port_number(),
         hash            => binary(),
         last_changed    => calendar:datetime()}].
 
-get_not_assigned_nodes(Distance) ->
-    gen_server:call(?SERVER, {get_not_assigned_nodes, Distance}, ?GET_NOT_ASSIGNED_NODES_CALL_TIMEOUT).
+get_not_assigned_nodes(Name, Distance) ->
+    gen_server:call(Name, {get_not_assigned_nodes, Distance}, ?GET_NOT_ASSIGNED_NODES_CALL_TIMEOUT).
 
 
 %%  @doc
 %%  Return amount of nodes in every bucket.
 %%  @end
--spec get_buckets_filling() -> [#{distance => distance(), nodes => non_neg_integer()}].
+-spec get_buckets_filling(
+    Name    :: atom()
+) -> [#{distance => distance(), nodes => non_neg_integer()}].
 
-get_buckets_filling() ->
-    gen_server:call(?SERVER, get_buckets_filling).
+get_buckets_filling(Name) ->
+    gen_server:call(Name, get_buckets_filling).
 
 
 %%  @doc
 %%  Set peer port.
 %%  @end
 -spec set_peer_port(
-    Port :: inet:port_number()
+    Name    :: atom(),
+    Port    :: inet:port_number()
 ) -> ok.
 
-set_peer_port(Port) ->
-    gen_server:call(?SERVER, {set_peer_port, Port}).
+set_peer_port(Name, Port) ->
+    gen_server:call(Name, {set_peer_port, Port}).
 
 
 %%  @doc
 %%  Stop the process
 %%  @end
--spec stop() -> ok.
+-spec stop(
+    Name    :: atom()
+) -> ok.
 
-stop() ->
-    gen_server:stop(?SERVER).
+stop(Name) ->
+    gen_server:stop(Name).
 
 
 %%%===================================================================
@@ -314,7 +334,7 @@ stop() ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([PortArg]) ->
+init([Name, PortArg]) ->
     % Get my node hash
     MyNodeHash = get_my_node_hash(),
     % Open UDP socket
@@ -350,6 +370,7 @@ init([PortArg]) ->
     end,
     K = erline_dht:get_env(k, 8),
     NewState = #state{
+        name                            = Name,
         socket                          = Socket,
         k                               = K,
         my_node_hash                    = MyNodeHash,
@@ -366,11 +387,11 @@ init([PortArg]) ->
     AddBootstrapNodeFun = fun
         (Address, Port) when is_list(Address) ->
             ok = case inet:getaddr(Address, inet) of
-                {ok, Ip} -> add_node(Ip, Port);
+                {ok, Ip} -> add_node(Name, Ip, Port);
                 _ -> ok
             end;
         (Ip, Port) when is_tuple(Ip) ->
-            ok = add_node(Ip, Port)
+            ok = add_node(Name, Ip, Port)
     end,
     ok = lists:foreach(fun ({AutoBootstrapNode, Port}) ->
         ok = AddBootstrapNodeFun(AutoBootstrapNode, Port)
@@ -542,6 +563,7 @@ handle_cast(_Request, State) ->
 %%--------------------------------------------------------------------
 handle_info({udp, Socket, Ip, Port, Response}, State) ->
     #state{
+        name          = Name,
         socket        = Socket,
         event_mgr_pid = EventMgrPid
     } = State,
@@ -549,7 +571,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         {ok, NodeBucket, #node{active_txs = NodeActiveTx}} ->
             {NodeBucket, NodeActiveTx};
         false ->
-            ok = add_node(Ip, Port),
+            ok = add_node(Name, Ip, Port),
             {false, []}
     end,
     NewState = case erline_dht_message:parse_krpc_response(Response, ActiveTx) of
@@ -702,13 +724,14 @@ code_change(_OldVsn, State, _Extra) ->
 
 handle_ping_query(Ip, Port, NodeHash, ReceivedTxId, State) ->
     #state{
+        name          = Name,
         socket        = Socket,
         event_mgr_pid = EventMgrPid,
         my_node_hash  = MyNodeHash
     } = State,
     ok = erline_dht_helper:notify(EventMgrPid, {ping, q, Ip, Port, NodeHash}),
     ok = erline_dht_message:respond_ping(Ip, Port, Socket, ReceivedTxId, MyNodeHash),
-    ok = add_node(Ip, Port, NodeHash),
+    ok = add_node(Name, Ip, Port, NodeHash),
     case get_bucket_and_node(Ip, Port, State) of
         {ok, Bucket, Node} -> update_node(Bucket, Node, [{last_changed, erline_dht_helper:local_time()}], State);
         false              -> State
@@ -751,6 +774,7 @@ handle_ping_response(Ip, Port, NewNodeHash, NewActiveTx, Bucket, State) ->
 
 handle_find_node_query(Ip, Port, NodeHash, Target, ReceivedTxId, State) ->
     #state{
+        name          = Name,
         socket        = Socket,
         event_mgr_pid = EventMgrPid,
         my_node_hash  = MyNodeHash,
@@ -760,7 +784,7 @@ handle_find_node_query(Ip, Port, NodeHash, Target, ReceivedTxId, State) ->
     Nodes = find_n_closest_nodes(Ip, Port, Target, K, State),
     CompactNodesInfo = erline_dht_helper:encode_compact_node_info(Nodes),
     ok = erline_dht_message:respond_find_node(Ip, Port, Socket, ReceivedTxId, MyNodeHash, CompactNodesInfo),
-    ok = add_node(Ip, Port, NodeHash),
+    ok = add_node(Name, Ip, Port, NodeHash),
     case get_bucket_and_node(Ip, Port, State) of
         {ok, Bucket, Node} -> update_node(Bucket, Node, [{last_changed, erline_dht_helper:local_time()}], State);
         false              -> State
@@ -783,12 +807,13 @@ handle_find_node_query(Ip, Port, NodeHash, Target, ReceivedTxId, State) ->
 
 handle_find_node_response(Ip, Port, NewNodeHash, Nodes, NewActiveTx, Bucket, State) ->
     #state{
+        name          = Name,
         event_mgr_pid = EventMgrPid
     } = State,
     ok = erline_dht_helper:notify(EventMgrPid, {find_node, r, Ip, Port, Nodes}),
     ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
         % Can't assume that node we got is live so we need to ping it.
-        ok = add_node(FoundIp, FoundPort, FoundedHash)
+        ok = add_node(Name, FoundIp, FoundPort, FoundedHash)
     end, Nodes),
     handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, false, State).
 
@@ -808,6 +833,7 @@ handle_find_node_response(Ip, Port, NewNodeHash, Nodes, NewActiveTx, Bucket, Sta
 
 handle_get_peers_query(Ip, Port, NodeHash, InfoHash, ReceivedTxId, State) ->
     #state{
+        name          = Name,
         socket        = Socket,
         event_mgr_pid = EventMgrPid,
         my_node_hash  = MyNodeHash,
@@ -824,7 +850,7 @@ handle_get_peers_query(Ip, Port, NodeHash, InfoHash, ReceivedTxId, State) ->
             erline_dht_helper:encode_compact_node_info(Nodes)
     end,
     ok = erline_dht_message:respond_get_peers(Ip, Port, Socket, ReceivedTxId, MyNodeHash, Token, PeersOrNodes),
-    ok = add_node(Ip, Port, NodeHash),
+    ok = add_node(Name, Ip, Port, NodeHash),
     Params = [
         {last_changed, erline_dht_helper:local_time()},
         {token_sent, Token}
@@ -854,6 +880,7 @@ handle_get_peers_query(Ip, Port, NodeHash, InfoHash, ReceivedTxId, State) ->
 handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
     {What, NewNodeHash, TxId, NodesOrPeers, Token} = GetPeersResp,
     #state{
+        name          = Name,
         event_mgr_pid = EventMgrPid,
         db_mod        = DbMod
     } = State,
@@ -874,8 +901,8 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
                             [_|_]  ->
                                 ok;
                             [] ->
-                                ok = add_node_without_ping(FoundIp, FoundPort, FoundedHash),
-                                ok = get_peers(FoundIp, FoundPort, InfoHash)
+                                ok = add_node_without_ping(Name, FoundIp, FoundPort, FoundedHash),
+                                ok = get_peers(Name, FoundIp, FoundPort, InfoHash)
                         end
                     end, NodesOrPeers),
                     State;
@@ -884,7 +911,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
                     io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, NodesOrPeers]),
                     ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, Ip, Port, {peers, InfoHash, NodesOrPeers}}),
                     lists:foldl(fun (#{ip := FoundIp, port := FoundPort}, StateAcc) ->
-                        ok = add_node_without_ping(FoundIp, FoundPort),
+                        ok = add_node_without_ping(Name, FoundIp, FoundPort),
                         add_peer(InfoHash, FoundIp, FoundPort, StateAcc)
                     end, State, NodesOrPeers)
             end
@@ -911,6 +938,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
 
 handle_announce_peer_query(Ip, NodePort, NodeHash, ImpliedPort, InfoHash, PeerPort, ReceivedToken, ReceivedTxId, State) ->
     #state{
+        name          = Name,
         socket        = Socket,
         my_node_hash  = MyNodeHash,
         event_mgr_pid = EventMgrPid,
@@ -936,7 +964,7 @@ handle_announce_peer_query(Ip, NodePort, NodeHash, ImpliedPort, InfoHash, PeerPo
             erline_dht_message:respond_error(Socket, Ip, NodePort, ReceivedTxId, 203, <<"Bad Token">>),
             State
     end,
-    ok = add_node(Ip, NodePort, NodeHash),
+    ok = add_node(Name, Ip, NodePort, NodeHash),
     case get_bucket_and_node(Ip, NodePort, NewState0) of
         {ok, Bucket, Node} -> update_node(Bucket, Node, [{last_changed, erline_dht_helper:local_time()}], NewState0);
         false              -> NewState0

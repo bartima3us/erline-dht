@@ -51,6 +51,7 @@
 }).
 
 -record(state, {
+    name                                :: atom(),
     my_node_hash                        :: binary(),
     socket                              :: port(),
     k                                   :: pos_integer(),

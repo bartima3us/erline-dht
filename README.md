@@ -28,57 +28,67 @@ Derivative project from https://github.com/bartima3us/erl-bittorrent
 
 Start ErLine DHT node explicitly. Should be used only when `{auto_start, false}` in sys.config. If node port is specified, node will try to start on that port. Otherwise port will be taken from sys.config or will be selected randomly.
 ```
-erline_dht:start_node() -> ok
+erline_dht:start_node(
+    NodeName :: atom()
+) -> ok
 ```
 and
 ```
 erline_dht:start_node(
-    Port :: inet:port_number()
+    NodeName :: atom(),
+    Port     :: inet:port_number()
 ) -> ok
 ```
 
 Stop ErLine DHT node:
 ```
-erline_dht:stop_node() -> ok
+erline_dht:stop_node(
+    NodeName :: atom()
+) -> ok
 ```
 
 Add a new node with unknown hash to the bucket:
 ```
 erline_dht:add_node_to_bucket(
-    Ip      :: inet:ip_address(),
-    Port    :: inet:port_number()
+    NodeName    :: atom(),
+    Ip          :: inet:ip_address(),
+    Port        :: inet:port_number()
 ) -> ok
 ```
 
 Add a new node with known hash to the bucket (if bucket is full, node will be added to the not assigned nodes list):
 ```
 erline_dht:add_node(
-    Ip      :: inet:ip_address(),
-    Port    :: inet:port_number(),
-    Hash    :: binary()
+    NodeName    :: atom(),
+    Ip          :: inet:ip_address(),
+    Port        :: inet:port_number(),
+    Hash        :: binary()
 ) -> ok.
 ```
 
 Try to find peers for the info hash in the network:
 ```
 erline_dht:get_peers(
-    InfoHash :: binary()
+    NodeName    :: atom(),
+    InfoHash    :: binary()
 ) -> ok.
 ```
 
 Try to get peers for the info hash from one node:
 ```
 erline_dht:get_peers(
-    Ip       :: inet:ip_address(),
-    Port     :: inet:port_number(),
-    InfoHash :: binary()
+    NodeName    :: atom(),
+    Ip          :: inet:ip_address(),
+    Port        :: inet:port_number(),
+    InfoHash    :: binary()
 ) -> ok.
 ```
 
 Return all nodes information in the bucket (`distance()` will be: `0..erlang:bit_size(YourNodeHash)` or by default: `0..160`):
 ```
 erline_dht:get_all_nodes_in_bucket(
-    Distance :: distance()
+    NodeName    :: atom(),
+    Distance    :: distance()
 ) -> [#{ip              => inet:ip_address(),
         port            => inet:port_number(),
         hash            => binary(),
@@ -88,7 +98,9 @@ erline_dht:get_all_nodes_in_bucket(
 
 Return all not assigned nodes information:
 ```
-erline_dht:get_not_assigned_nodes() ->
+erline_dht:get_not_assigned_nodes(
+    NodeName :: atom()
+) ->
     [#{ip              => inet:ip_address(),
        port            => inet:port_number(),
        hash            => binary(),
@@ -98,6 +110,7 @@ erline_dht:get_not_assigned_nodes() ->
 Return not assigned nodes of the specified distance information:
 ```
 erline_dht:get_not_assigned_nodes(
+    NodeName :: atom(),
     Distance :: distance()
 ) -> [#{ip              => inet:ip_address(),
         port            => inet:port_number(),
@@ -107,22 +120,29 @@ erline_dht:get_not_assigned_nodes(
 
 Return amount of nodes in every bucket:
 ```
-erline_dht:get_buckets_filling() -> [#{distance => distance(), nodes => non_neg_integer()}].
+erline_dht:get_buckets_filling(
+    NodeName :: atom()
+) -> [#{distance => distance(), nodes => non_neg_integer()}].
 ```
 
 Return UDP socket port of the ErLine DHT client:
 ```
-erline_dht:get_port() -> Port :: inet:port_number().
+erline_dht:get_port(
+    NodeName :: atom()
+) -> Port :: inet:port_number().
 ```
 
 Return event manager pid:
 ```
-erline_dht:get_event_mgr_pid() -> EventMgrPid :: pid()
+erline_dht:get_event_mgr_pid(
+    NodeName :: atom()
+) -> EventMgrPid :: pid()
 ```
 
 Set peer port. If port is set, it will be used as your port in `announce_peer` request. Otherwise ErLine DHT node port will be used as your peer port. Default: atom `undefined` (not set):
 ```
 erline_dht:set_peer_port(
+    NodeName :: atom(),
     Port :: inet:port_number()
 ) -> ok
 ```
@@ -148,7 +168,7 @@ Default sys.config:
     ]}
 ```
 
-* ```auto_start``` - Whether start node on application start or not. If `false` - node must be started explicitly with `erline_dht:start_node/0` or `erline_dht:start_node/1` function.
+* ```auto_start``` - Whether start node on application start or not. If `true` - node is started automatically and node name is atom `node1`. If `false` - node must be started explicitly with `erline_dht:start_node/1` or `erline_dht:start_node/2` function.
 * ```auto_bootstrap_nodes``` - List of initial nodes and their port used in bootstrapping process just after ErLineDHT start.
 * ```db_mod``` - Module used for database queries encapsulation. ErLineDHT uses ETS by default but it can be easily changed by another engine.
 * ```limit_nodes``` - If `true` - ErLine DHT will clear some old nodes from time to time. If `false` - ErLine DHT will keep all known nodes. **Warning!** Since there are approximately 10-25 million of Mainline DHT network users, keeping all nodes may consume a lot of memory.
@@ -163,7 +183,9 @@ All received queries and responses can be subscribed.
 Get event manager pid and attach event handler
 
 ```
-EventMgrPid = erline_dht:get_event_mgr_pid().
+EventMgrPid = erline_dht:get_event_mgr_pid(
+    NodeName :: atom()
+).
 gen_event:add_handler(EventMgrPid, your_dht_event_handler, []).
 ```
 
