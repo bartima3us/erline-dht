@@ -360,7 +360,7 @@ init([Name, PortArg]) ->
     end, [], lists:seq(0, erlang:bit_size(MyNodeHash))),
     % Create DB
     DbMod = erline_dht:get_env(db_mod, erline_dht_db_ets),
-    ok = DbMod:init(),
+    ok = DbMod:init(Name),
     % Start event manager
     {ok, EventMgrPid} = gen_event:start_link(),
     % Schedule nodes clearing scheduler if necessary
@@ -435,7 +435,7 @@ handle_call({get_all_nodes_in_bucket, Distance}, _From, State = #state{buckets =
     end,
     {reply, Response, State};
 
-handle_call({get_not_assigned_nodes, Distance}, _From, State = #state{db_mod = DbMod}) ->
+handle_call({get_not_assigned_nodes, Distance}, _From, State = #state{name = Name, db_mod = DbMod}) ->
     Response = lists:filtermap(fun (Node) ->
         #node{
             ip_port         = {Ip, Port},
@@ -448,7 +448,7 @@ handle_call({get_not_assigned_nodes, Distance}, _From, State = #state{db_mod = D
             true  -> {true, Response};
             false -> false
         end
-    end, DbMod:get_not_assigned_nodes()),
+    end, DbMod:get_not_assigned_nodes(Name)),
     {reply, Response, State};
 
 handle_call(get_buckets_filling, _From, State = #state{buckets = Buckets}) ->
@@ -469,6 +469,7 @@ handle_call({set_peer_port, Port}, _From, State = #state{}) ->
 %%--------------------------------------------------------------------
 handle_cast({add_node, Ip, Port, Hash, Ping}, State = #state{}) ->
     #state{
+        name          = Name,
         my_node_hash  = MyNodeHash,
         db_mod        = DbMod
     } = State,
@@ -489,7 +490,7 @@ handle_cast({add_node, Ip, Port, Hash, Ping}, State = #state{}) ->
                 distance     = Distance,
                 last_changed = erline_dht_helper:local_time()
             },
-            true = DbMod:insert_to_not_assigned_nodes(NewNode),
+            true = DbMod:insert_to_not_assigned_nodes(Name, NewNode),
             case Ping of
                 true ->
                     {ok, NewState0} = do_ping_async(Ip, Port, State),
@@ -506,6 +507,7 @@ handle_cast({add_node, Ip, Port, Hash, Ping}, State = #state{}) ->
 %
 handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{}) ->
     #state{
+        name          = Name,
         socket        = Socket,
         buckets       = Buckets,
         db_mod        = DbMod,
@@ -540,8 +542,8 @@ handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{}) ->
             tx_id       = TxId,
             info_hash   = InfoHash
         },
-        true = DbMod:insert_to_get_peers_searches(GetPeersSearch),
-        true = DbMod:insert_to_requested_nodes(RequestedNode),
+        true = DbMod:insert_to_get_peers_searches(Name, GetPeersSearch),
+        true = DbMod:insert_to_requested_nodes(Name, RequestedNode),
         NewState0
     end, State, NodesForSearch),
     {noreply, NewState};
@@ -884,20 +886,20 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
         event_mgr_pid = EventMgrPid,
         db_mod        = DbMod
     } = State,
-    NewState0 = case DbMod:get_info_hash(Ip, Port, TxId) of
+    NewState0 = case DbMod:get_info_hash(Name, Ip, Port, TxId) of
         false ->
             % Responded with info hash which we do not have in a search state
             State;
         InfoHash ->
             % Update last_changed
-            true = DbMod:insert_to_get_peers_searches(#get_peers_search{info_hash = InfoHash, last_changed = erline_dht_helper:local_time()}),
+            true = DbMod:insert_to_get_peers_searches(Name, #get_peers_search{info_hash = InfoHash, last_changed = erline_dht_helper:local_time()}),
             case What of
                 % Continue search
                 nodes ->
                     ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, Ip, Port, {nodes, InfoHash, NodesOrPeers}}),
                     ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
                         % Check whether we already have that node in ETS
-                        case DbMod:get_requested_node(FoundIp, FoundPort, InfoHash) of
+                        case DbMod:get_requested_node(Name, FoundIp, FoundPort, InfoHash) of
                             [_|_]  ->
                                 ok;
                             [] ->
@@ -1195,8 +1197,8 @@ handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, DoFindNodes,
     State   :: #state{}
 ) -> false | {ok, Bucket :: #bucket{} | false, Node :: #node{}}.
 
-get_bucket_and_node(Ip, Port, #state{buckets = Buckets, db_mod = DbMod}) ->
-    case DbMod:get_not_assigned_node(Ip, Port) of
+get_bucket_and_node(Ip, Port, #state{name = Name, buckets = Buckets, db_mod = DbMod}) ->
+    case DbMod:get_not_assigned_node(Name, Ip, Port) of
         [Node] -> {ok, false, Node};
         []     -> get_bucket_and_node(Ip, Port, Buckets)
     end;
@@ -1256,6 +1258,7 @@ update_node(Ip, Port, Params, State = #state{}) when is_tuple(Ip), is_integer(Po
 
 update_node(Bucket, Node = #node{ip_port = {Ip, Port}}, Params, State = #state{}) ->
     #state{
+        name         = Name,
         my_node_hash = MyNodeHash,
         buckets      = Buckets,
         db_mod       = DbMod
@@ -1306,7 +1309,7 @@ update_node(Bucket, Node = #node{ip_port = {Ip, Port}}, Params, State = #state{}
             % Check for `unassign` param
             NewBuckets1 = case lists:member(unassign, Params) of
                 true ->
-                    true = DbMod:insert_to_not_assigned_nodes(UpdatedNode),
+                    true = DbMod:insert_to_not_assigned_nodes(Name, UpdatedNode),
                     NewNodes1 = lists:keydelete({Ip, Port}, #node.ip_port, Nodes),
                     lists:keyreplace(CurrDist, #bucket.distance, Buckets, Bucket#bucket{nodes = NewNodes1});
                 false ->
@@ -1317,12 +1320,12 @@ update_node(Bucket, Node = #node{ip_port = {Ip, Port}}, Params, State = #state{}
             case lists:keysearch(assign, 1, Params) of
                 % Assign updated node to the bucket if there is assign param
                 {value, {assign, NewDist}} ->
-                    true = DbMod:delete_from_not_assigned_nodes_by_ip_port(Ip, Port),
+                    true = DbMod:delete_from_not_assigned_nodes_by_ip_port(Name, Ip, Port),
                     NewBuckets = AddNodeToBucketFun(NewDist),
                     State#state{buckets = NewBuckets};
                 % Just put updated node in the not assigned nodes list
                 false ->
-                    true = DbMod:insert_to_not_assigned_nodes(UpdatedNode),
+                    true = DbMod:insert_to_not_assigned_nodes(Name, UpdatedNode),
                     State
             end
     end.
@@ -1536,7 +1539,7 @@ add_peer(InfoHashBin, Ip, Port, State = #state{info_hashes = InfoHashes}) ->
     State    :: #state{}
 ) -> NewState :: #state{}.
 
-insert_info_hash(InfoHash, State = #state{db_mod = DbMod, k = K}) ->
+insert_info_hash(InfoHash, State = #state{name = Name, db_mod = DbMod, k = K}) ->
     NodesWithDist = lists:foldl(fun (#requested_node{ip_port = {Ip, Port}}, AccNodes) ->
             case get_bucket_and_node(Ip, Port, State) of
                 {ok, _, #node{hash = NodeHash, token_received = TokenReceived}} ->
@@ -1547,7 +1550,7 @@ insert_info_hash(InfoHash, State = #state{db_mod = DbMod, k = K}) ->
                 false ->
                     AccNodes
             end
-    end, [], DbMod:get_requested_nodes(InfoHash)),
+    end, [], DbMod:get_requested_nodes(Name, InfoHash)),
     lists:foldl(fun ({_, {Ip, Port}, TokenReceived}, StateAcc) ->
         {ok, NewStateAcc} = do_announce_peer_async(Ip, Port, InfoHash, TokenReceived, StateAcc),
         NewStateAcc
@@ -1561,18 +1564,18 @@ insert_info_hash(InfoHash, State = #state{db_mod = DbMod, k = K}) ->
 %%  @end
 -spec check_searches(State :: #state{}) -> NewState :: #state{}.
 
-check_searches(State = #state{db_mod = DbMod}) ->
+check_searches(State = #state{name = Name, db_mod = DbMod}) ->
     lists:foldl(fun (#get_peers_search{info_hash = InfoHash, last_changed = LastChanged}, StateAcc) ->
         case erline_dht_helper:datetime_diff(erline_dht_helper:local_time(), LastChanged) < ?GET_PEERS_SEARCH_TTL of
             true  ->
                 StateAcc;
             false ->
                 NewStateAcc = insert_info_hash(InfoHash, StateAcc),
-                true = DbMod:delete_get_peers_search(InfoHash),
-                true = DbMod:delete_requested_nodes(InfoHash),
+                true = DbMod:delete_get_peers_search(Name, InfoHash),
+                true = DbMod:delete_requested_nodes(Name, InfoHash),
                 NewStateAcc
         end
-    end, State, DbMod:get_all_get_peers_searches()).
+    end, State, DbMod:get_all_get_peers_searches(Name)).
 
 
 %%  @private
@@ -1633,10 +1636,10 @@ update_bucket_nodes_status(Distance, State = #state{buckets = CurrBuckets}) ->
     State    :: #state{}
 ) -> NewState :: #state{}.
 
-init_not_active_nodes_replacement(Distance, State = #state{k = K, db_mod = DbMod}) ->
+init_not_active_nodes_replacement(Distance, State = #state{name = Name, k = K, db_mod = DbMod}) ->
     NotAssignedNodes = lists:sort(fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
         LastChanged1 > LastChanged2
-    end, DbMod:get_not_assigned_nodes(Distance)),
+    end, DbMod:get_not_assigned_nodes(Name, Distance)),
     lists:foldl(fun (Node, CurrAccState) ->
         {ok, NewAccState} = do_ping_async(false, Node, CurrAccState),
         NewAccState
@@ -1651,9 +1654,9 @@ init_not_active_nodes_replacement(Distance, State = #state{k = K, db_mod = DbMod
     State :: #state{}
 ) -> ok.
 
-clear_not_assigned_nodes(#state{db_mod = DbMod}) ->
+clear_not_assigned_nodes(#state{name = Name, db_mod = DbMod}) ->
     Dt = erline_dht_helper:change_datetime(erline_dht_helper:local_time(), ?NOT_ACTIVE_NOT_ASSIGNED_NODES_TTL),
-    ok = DbMod:delete_from_not_assigned_nodes_by_dist_date(undefined, Dt).
+    ok = DbMod:delete_from_not_assigned_nodes_by_dist_date(Name, undefined, Dt).
 
 
 %%  @private
@@ -1665,9 +1668,9 @@ clear_not_assigned_nodes(#state{db_mod = DbMod}) ->
     State    :: #state{}
 ) -> ok.
 
-clear_not_assigned_nodes(Distance, #state{db_mod = DbMod, not_assigned_clearing_threshold = Threshold}) ->
+clear_not_assigned_nodes(Distance, #state{name = Name, db_mod = DbMod, not_assigned_clearing_threshold = Threshold}) ->
     Dt = erline_dht_helper:change_datetime(erline_dht_helper:local_time(), ?ACTIVE_NOT_ASSIGNED_NODES_TTL),
-    case DbMod:get_not_assigned_nodes(Distance) of
+    case DbMod:get_not_assigned_nodes(Name, Distance) of
         Nodes when length(Nodes) > Threshold ->
             SortedNodes = lists:sort(fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
                 LastChanged1 >= LastChanged2
@@ -1675,7 +1678,7 @@ clear_not_assigned_nodes(Distance, #state{db_mod = DbMod, not_assigned_clearing_
             {_, NodesToRemove} = lists:split(Threshold, SortedNodes),
             ok = lists:foreach(fun (#node{ip_port = {Ip, Port}, last_changed = LastChanged}) ->
                 true = case LastChanged =< Dt of
-                    true  -> DbMod:delete_from_not_assigned_nodes_by_ip_port(Ip, Port);
+                    true  -> DbMod:delete_from_not_assigned_nodes_by_ip_port(Name, Ip, Port);
                     false -> true
                 end
             end, NodesToRemove);

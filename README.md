@@ -183,9 +183,7 @@ All received queries and responses can be subscribed.
 Get event manager pid and attach event handler
 
 ```
-EventMgrPid = erline_dht:get_event_mgr_pid(
-    NodeName :: atom()
-).
+EventMgrPid = erline_dht:get_event_mgr_pid(NodeName).
 gen_event:add_handler(EventMgrPid, your_dht_event_handler, []).
 ```
 

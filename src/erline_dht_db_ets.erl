@@ -13,38 +13,38 @@
 
 %% Common API
 -export([
-    init/0
+    init/1
 ]).
 
 %% NOT_ASSIGNED_NODES_TABLE API
 -export([
-    get_not_assigned_nodes/0,
     get_not_assigned_nodes/1,
-    get_not_assigned_node/2,
-    insert_to_not_assigned_nodes/1,
-    delete_from_not_assigned_nodes_by_ip_port/2,
-    delete_from_not_assigned_nodes_by_dist_date/2
+    get_not_assigned_nodes/2,
+    get_not_assigned_node/3,
+    insert_to_not_assigned_nodes/2,
+    delete_from_not_assigned_nodes_by_ip_port/3,
+    delete_from_not_assigned_nodes_by_dist_date/3
 ]).
 
 %% REQUESTED_NODES_TABLE API
 -export([
-    insert_to_requested_nodes/1,
-    get_requested_node/3,
-    get_requested_nodes/1,
-    get_info_hash/3,
-    delete_requested_nodes/1
+    insert_to_requested_nodes/2,
+    get_requested_node/4,
+    get_requested_nodes/2,
+    get_info_hash/4,
+    delete_requested_nodes/2
 ]).
 
 %% GET_PEERS_SEARCHES_TABLE API
 -export([
-    insert_to_get_peers_searches/1,
-    get_all_get_peers_searches/0,
-    delete_get_peers_search/1
+    insert_to_get_peers_searches/2,
+    get_all_get_peers_searches/1,
+    delete_get_peers_search/2
 ]).
 
--define(NOT_ASSIGNED_NODES_TABLE, 'erline_dht$not_assigned_nodes').
--define(REQUESTED_NODES_TABLE, 'erline_dht$requested_nodes').
--define(GET_PEERS_SEARCHES_TABLE, 'erline_dht$get_peers_searches').
+-define(NOT_ASSIGNED_NODES_TABLE(N), get_table_name(N, not_assigned_nodes)).
+-define(REQUESTED_NODES_TABLE(N), get_table_name(N, requested_nodes)).
+-define(GET_PEERS_SEARCHES_TABLE(N), get_table_name(N, get_peers_searches)).
 
 %%%===================================================================
 %%% API
@@ -54,15 +54,17 @@
 %%
 %%
 %%
--spec init() -> ok.
+-spec init(
+    NodeName :: atom()
+) -> ok.
 
-init() ->
+init(NodeName) ->
     % 'compressed' - trade-off. Example with 200k nodes (not compressed vs compressed):
     % Read performance: 7 microseconds vs 13 microseconds;
     % RAM consumption: 618 MB vs 266 MB
-    ?NOT_ASSIGNED_NODES_TABLE = ets:new(?NOT_ASSIGNED_NODES_TABLE, [set, named_table, compressed, public, {keypos, #node.ip_port}]),
-    ?REQUESTED_NODES_TABLE    = ets:new(?REQUESTED_NODES_TABLE, [set, named_table, {keypos, #requested_node.ip_port}]),
-    ?GET_PEERS_SEARCHES_TABLE = ets:new(?GET_PEERS_SEARCHES_TABLE, [set, named_table, {keypos, #get_peers_search.info_hash}]),
+    ets:new(?NOT_ASSIGNED_NODES_TABLE(NodeName), [set, named_table, compressed, public, {keypos, #node.ip_port}]),
+    ets:new(?REQUESTED_NODES_TABLE(NodeName), [set, named_table, {keypos, #requested_node.ip_port}]),
+    ets:new(?GET_PEERS_SEARCHES_TABLE(NodeName), [set, named_table, {keypos, #get_peers_search.info_hash}]),
     ok.
 
 % ------------------------------------------------------------------------
@@ -72,62 +74,74 @@ init() ->
 %%
 %%
 %%
--spec get_not_assigned_nodes() -> [#node{}].
+-spec get_not_assigned_nodes(
+    NodeName :: atom()
+) -> [#node{}].
 
-get_not_assigned_nodes() ->
-    ets:match_object(?NOT_ASSIGNED_NODES_TABLE, #node{_ = '_'}).
+get_not_assigned_nodes(NodeName) ->
+    ets:match_object(?NOT_ASSIGNED_NODES_TABLE(NodeName), #node{_ = '_'}).
 
 
 %%
 %%
 %%
 -spec get_not_assigned_nodes(
+    NodeName :: atom(),
     Distance :: distance()
 ) -> [#node{}].
 
-get_not_assigned_nodes(Distance) ->
-    ets:match_object(?NOT_ASSIGNED_NODES_TABLE, #node{distance = Distance, _ = '_'}).
+get_not_assigned_nodes(NodeName, Distance) ->
+    ets:match_object(?NOT_ASSIGNED_NODES_TABLE(NodeName), #node{distance = Distance, _ = '_'}).
 
 
 %%
 %%
 %%
 -spec get_not_assigned_node(
-    Ip   :: inet:ip_address(),
-    Port :: inet:port_number()
+    NodeName :: atom(),
+    Ip       :: inet:ip_address(),
+    Port     :: inet:port_number()
 ) -> [#node{}].
 
-get_not_assigned_node(Ip, Port) ->
-    ets:match_object(?NOT_ASSIGNED_NODES_TABLE, #node{ip_port = {Ip, Port}, _ = '_'}).
+get_not_assigned_node(NodeName, Ip, Port) ->
+    ets:match_object(?NOT_ASSIGNED_NODES_TABLE(NodeName), #node{ip_port = {Ip, Port}, _ = '_'}).
 
 
 %%
 %%
 %%
 -spec insert_to_not_assigned_nodes(
-    Node :: #node{}
+    NodeName :: atom(),
+    Node     :: #node{}
 ) -> true.
 
-insert_to_not_assigned_nodes(Node) ->
-    true = ets:insert(?NOT_ASSIGNED_NODES_TABLE, Node).
+insert_to_not_assigned_nodes(NodeName, Node) ->
+    true = ets:insert(?NOT_ASSIGNED_NODES_TABLE(NodeName), Node).
 
 
 %%
 %%
 %%
 -spec delete_from_not_assigned_nodes_by_ip_port(
-    Ip   :: inet:ip_address(),
-    Port :: inet:port_number()
+    NodeName :: atom(),
+    Ip       :: inet:ip_address(),
+    Port     :: inet:port_number()
 ) -> true.
 
-delete_from_not_assigned_nodes_by_ip_port(Ip, Port) ->
-    true = ets:match_delete(?NOT_ASSIGNED_NODES_TABLE, #node{ip_port = {Ip, Port}, _ = '_'}).
+delete_from_not_assigned_nodes_by_ip_port(NodeName, Ip, Port) ->
+    true = ets:match_delete(?NOT_ASSIGNED_NODES_TABLE(NodeName), #node{ip_port = {Ip, Port}, _ = '_'}).
 
 
 %%
 %%
 %%
-delete_from_not_assigned_nodes_by_dist_date(Distance, Date) ->
+-spec delete_from_not_assigned_nodes_by_dist_date(
+    NodeName :: atom(),
+    Distance :: distance(),
+    Date     :: calendar:datetime()
+) -> true.
+
+delete_from_not_assigned_nodes_by_dist_date(NodeName, Distance, Date) ->
     MatchSpec = ets:fun2ms(fun
         (#node{distance = NodeDist, last_changed = LastChanged}) when
             NodeDist =:= Distance,
@@ -137,7 +151,7 @@ delete_from_not_assigned_nodes_by_dist_date(Distance, Date) ->
         (#node{}) ->
             false
     end),
-    ets:select_delete(?NOT_ASSIGNED_NODES_TABLE, MatchSpec),
+    ets:select_delete(?NOT_ASSIGNED_NODES_TABLE(NodeName), MatchSpec),
     ok.
 
 
@@ -150,49 +164,53 @@ delete_from_not_assigned_nodes_by_dist_date(Distance, Date) ->
 %%
 %%
 -spec insert_to_requested_nodes(
-    Node :: #requested_node{}
+    NodeName :: atom(),
+    Node     :: #requested_node{}
 ) -> true.
 
-insert_to_requested_nodes(Node) ->
-    true = ets:insert(?REQUESTED_NODES_TABLE, Node).
+insert_to_requested_nodes(NodeName, Node) ->
+    true = ets:insert(?REQUESTED_NODES_TABLE(NodeName), Node).
 
 
 %%
 %%
 %%
 -spec get_requested_node(
+    NodeName    :: atom(),
     Ip          :: inet:ip_address(),
     Port        :: inet:port_number(),
     InfoHash    :: binary()
 ) -> [#requested_node{}].
 
-get_requested_node(Ip, Port, InfoHash) ->
-    ets:match_object(?REQUESTED_NODES_TABLE, #requested_node{ip_port = {Ip, Port}, info_hash = InfoHash, _ = '_'}).
+get_requested_node(NodeName, Ip, Port, InfoHash) ->
+    ets:match_object(?REQUESTED_NODES_TABLE(NodeName), #requested_node{ip_port = {Ip, Port}, info_hash = InfoHash, _ = '_'}).
 
 
 %%
 %%
 %%
 -spec get_requested_nodes(
+    NodeName :: atom(),
     InfoHash :: binary()
 ) -> [#requested_node{}].
 
-get_requested_nodes(InfoHash) ->
-    ets:match_object(?REQUESTED_NODES_TABLE, #requested_node{info_hash = InfoHash, _ = '_'}).
+get_requested_nodes(NodeName, InfoHash) ->
+    ets:match_object(?REQUESTED_NODES_TABLE(NodeName), #requested_node{info_hash = InfoHash, _ = '_'}).
 
 
 %%
 %%
 %%
 -spec get_info_hash(
-    Ip      :: inet:ip_address(),
-    Port    :: inet:port_number(),
-    TxId    :: tx_id()
+    NodeName :: atom(),
+    Ip       :: inet:ip_address(),
+    Port     :: inet:port_number(),
+    TxId     :: tx_id()
 ) -> false | binary().
 
-get_info_hash(Ip, Port, TxId) ->
+get_info_hash(NodeName, Ip, Port, TxId) ->
     Request = #requested_node{ip_port = {Ip, Port}, tx_id = TxId, _ = '_'},
-    case ets:match_object(?REQUESTED_NODES_TABLE, Request) of
+    case ets:match_object(?REQUESTED_NODES_TABLE(NodeName), Request) of
         [#requested_node{info_hash = InfoHash}] -> InfoHash;
         [] -> false
     end.
@@ -202,11 +220,12 @@ get_info_hash(Ip, Port, TxId) ->
 %%
 %%
 -spec delete_requested_nodes(
+    NodeName :: atom(),
     InfoHash :: binary()
 ) -> true.
 
-delete_requested_nodes(InfoHash) ->
-    true = ets:match_delete(?REQUESTED_NODES_TABLE, #requested_node{info_hash = InfoHash, _ = '_'}).
+delete_requested_nodes(NodeName, InfoHash) ->
+    true = ets:match_delete(?REQUESTED_NODES_TABLE(NodeName), #requested_node{info_hash = InfoHash, _ = '_'}).
 
 % ------------------------------------------------------------------------
 % GET_PEERS_SEARCHES_TABLE
@@ -216,31 +235,53 @@ delete_requested_nodes(InfoHash) ->
 %%
 %%
 -spec insert_to_get_peers_searches(
+    NodeName       :: atom(),
     GetPeersSearch :: #get_peers_search{}
 ) -> true.
 
-insert_to_get_peers_searches(GetPeersSearch) ->
-    true = ets:insert(?GET_PEERS_SEARCHES_TABLE, GetPeersSearch).
+insert_to_get_peers_searches(NodeName, GetPeersSearch) ->
+    true = ets:insert(?GET_PEERS_SEARCHES_TABLE(NodeName), GetPeersSearch).
 
 
 %%
 %%
 %%
--spec get_all_get_peers_searches() -> [#get_peers_search{}].
+-spec get_all_get_peers_searches(
+    NodeName :: atom()
+) -> [#get_peers_search{}].
 
-get_all_get_peers_searches() ->
-    ets:match_object(?GET_PEERS_SEARCHES_TABLE, #get_peers_search{_ = '_'}).
+get_all_get_peers_searches(NodeName) ->
+    ets:match_object(?GET_PEERS_SEARCHES_TABLE(NodeName), #get_peers_search{_ = '_'}).
 
 
 %%
 %%
 %%
 -spec delete_get_peers_search(
+    NodeName :: atom(),
     InfoHash :: binary()
 ) -> true.
 
-delete_get_peers_search(InfoHash) ->
-    true = ets:match_delete(?GET_PEERS_SEARCHES_TABLE, #get_peers_search{info_hash = InfoHash, _ = '_'}).
+delete_get_peers_search(NodeName, InfoHash) ->
+    true = ets:match_delete(?GET_PEERS_SEARCHES_TABLE(NodeName), #get_peers_search{info_hash = InfoHash, _ = '_'}).
 
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
+
+%%  @private
+%%  @doc
+%%  Make a table name.
+%%  Example: 'erline_dht$node1$requested_nodes'
+%%  @end
+-spec get_table_name(
+    NodeName :: atom(),
+    Table    :: atom()
+) -> TableName :: atom().
+
+get_table_name(NodeName, Table) ->
+    StringName = erlang:atom_to_list(?APP) ++ "$" ++ erlang:atom_to_list(NodeName) ++ "$" ++ erlang:atom_to_list(Table),
+    erlang:list_to_atom(StringName).
 
 
