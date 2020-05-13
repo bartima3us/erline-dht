@@ -23,6 +23,7 @@
     get_not_assigned_nodes/2,
     get_buckets_filling/1,
     get_port/1,
+    get_hash/1,
     set_peer_port/2,
     get_event_mgr_pid/1
 ]).
@@ -207,6 +208,17 @@ get_buckets_filling(Name) ->
 
 get_port(Name) ->
     erline_dht_bucket:get_port(Name).
+
+
+%%  @doc
+%%  Return node hash.
+%%  @end
+-spec get_hash(
+    Name    :: atom()
+) -> Hash :: binary().
+
+get_hash(Name) ->
+    erline_dht_bucket:get_hash(Name).
 
 
 %%  @doc

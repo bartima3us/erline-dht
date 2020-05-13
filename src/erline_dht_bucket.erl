@@ -22,6 +22,7 @@
     get_peers/2,
     get_peers/4,
     get_port/1,
+    get_hash/1,
     get_event_mgr_pid/1,
     get_all_nodes_in_bucket/2,
     get_not_assigned_nodes/1,
@@ -229,6 +230,17 @@ get_port(Name) ->
 
 
 %%  @doc
+%%  Return node hash.
+%%  @end
+-spec get_hash(
+    Name    :: atom()
+) -> Hash :: binary().
+
+get_hash(Name) ->
+    gen_server:call(Name, get_hash).
+
+
+%%  @doc
 %%  Return event manager pid.
 %%  @end
 -spec get_event_mgr_pid(
@@ -408,6 +420,9 @@ init([Name, PortArg]) ->
 handle_call(get_port, _From, State = #state{socket = Socket}) ->
     {ok, Port} = inet:port(Socket),
     {reply, Port, State};
+
+handle_call(get_hash, _From, State = #state{my_node_hash = Hash}) ->
+    {reply, Hash, State};
 
 handle_call(get_event_mgr_pid, _From, State = #state{event_mgr_pid = EventMgrPid}) ->
     {reply, EventMgrPid, State};

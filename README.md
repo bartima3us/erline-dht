@@ -132,6 +132,13 @@ erline_dht:get_port(
 ) -> Port :: inet:port_number().
 ```
 
+Return node hash of the ErLine DHT client:
+```
+erline_dht:get_hash(
+    NodeName :: atom()
+) -> Hash :: binary().
+```
+
 Return event manager pid:
 ```
 erline_dht:get_event_mgr_pid(
