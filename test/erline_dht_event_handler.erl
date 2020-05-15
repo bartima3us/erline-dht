@@ -57,6 +57,9 @@ init(_) ->
 handle_event({ping, q, _Ip, _Port, _NodeHash}, _State) ->
     {ok, []};
 
+handle_event({ping, r, _Ip, _Port, _NodeHash}, _State) ->
+    {ok, []};
+
 handle_event(_Event, State) ->
     {ok, State}.
 
