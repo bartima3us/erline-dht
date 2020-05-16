@@ -23,8 +23,6 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {}).
-
 %%%===================================================================
 %%% gen_event callbacks
 %%%===================================================================
@@ -58,6 +56,12 @@ handle_event({ping, q, _Ip, _Port, _NodeHash}, _State) ->
     {ok, []};
 
 handle_event({ping, r, _Ip, _Port, _NodeHash}, _State) ->
+    {ok, []};
+
+handle_event({find_node, q, _Ip, _Port, {_NodeHash, _Target}}, _State) ->
+    {ok, []};
+
+handle_event({find_node, r, _Ip, _Port, {_NodeHash, _Nodes}}, _State) ->
     {ok, []};
 
 handle_event(_Event, State) ->

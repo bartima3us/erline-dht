@@ -410,7 +410,7 @@ handle_find_node_response_test_() ->
         fun() ->
             ok = meck:new([erline_dht_message, erline_dht_helper, erline_dht_db_ets]),
             ok = meck:expect(erline_dht_message, respond_ping, [{12,34,92,155}, 6862, sock, <<0,2>>, <<"h45h">>], ok),
-            ok = meck:expect(erline_dht_helper, notify, [EventMgrPid, {find_node, r, {12,34,92,155}, 6862, Nodes}], ok),
+            ok = meck:expect(erline_dht_helper, notify, [EventMgrPid, {find_node, r, {12,34,92,155}, 6862, {<<"n0d3_h45h">>, Nodes}}], ok),
             ok = meck:expect(erline_dht_helper, local_time, [], {{2020,7,1},{12,0,0}}),
             ok = meck:expect(erline_dht_helper, get_distance, [<<"h45h">>, <<"n0d3_h45h">>], {ok, 2}),
             ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, ['_', {12,34,92,155}, 6862], [])
@@ -449,7 +449,7 @@ handle_find_node_response_test_() ->
                 ),
                 ?assertEqual(
                     1,
-                    meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {find_node, r, {12,34,92,155}, 6862, Nodes}])
+                    meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {find_node, r, {12,34,92,155}, 6862, {<<"n0d3_h45h">>, Nodes}}])
                 ),
                 ?assertEqual(
                     1,

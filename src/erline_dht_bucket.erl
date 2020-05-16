@@ -827,7 +827,7 @@ handle_find_node_response(Ip, Port, NewNodeHash, Nodes, NewActiveTx, Bucket, Sta
         name          = Name,
         event_mgr_pid = EventMgrPid
     } = State,
-    ok = erline_dht_helper:notify(EventMgrPid, {find_node, r, Ip, Port, Nodes}),
+    ok = erline_dht_helper:notify(EventMgrPid, {find_node, r, Ip, Port, {NewNodeHash, Nodes}}),
     ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
         % Can't assume that node we got is live so we need to ping it.
         ok = add_node(Name, FoundIp, FoundPort, FoundedHash)
