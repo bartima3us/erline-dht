@@ -113,25 +113,12 @@ test_basic(_Config) ->
     ok = meck:wait(erline_dht_event_handler, handle_event, [{find_node, r, {127,0,0,1}, PortNode2, {HashNode2, [#{hash => HashNode1, ip => {127,0,0,1}, port => PortNode1}]}}, '_'], 10000),
     1 = meck:num_calls(erline_dht_event_handler, handle_event, [{find_node, r, {127,0,0,1}, PortNode2, {HashNode2, [#{hash => HashNode1, ip => {127,0,0,1}, port => PortNode1}]}}, '_']),
     %
-    % Get peers request to node3
-    InfoHash = <<14,23,55,72,102,36,192,45,115,90,14,23,55,72,102,36,192,45,115,90>>,
-    ok = erline_dht_bucket:get_peers(node3, InfoHash),
-    % Request to first known node
-    ok = meck:wait(erline_dht_event_handler, handle_event, [{get_peers, q, {127,0,0,1}, PortNode3, {HashNode3, InfoHash}}, '_'], 10000),
-    1 = meck:num_calls(erline_dht_event_handler, handle_event, [{get_peers, q, {127,0,0,1}, PortNode3, {HashNode3, InfoHash}}, '_']),
+    % Find node request from node3 to node1
     ok = meck:reset(erline_dht_event_handler),
-    % Request to second known node
-    ok = meck:wait(erline_dht_event_handler, handle_event, [{get_peers, q, {127,0,0,1}, PortNode3, {HashNode3, InfoHash}}, '_'], 10000),
-    1 = meck:num_calls(erline_dht_event_handler, handle_event, [{get_peers, q, {127,0,0,1}, PortNode3, {HashNode3, InfoHash}}, '_']),
-    % Responses from two nodes
-    ok = meck:wait(erline_dht_event_handler, handle_event, [{get_peers, r, {127,0,0,1}, PortNode1, {nodes, HashNode1, InfoHash, [#{hash => HashNode2, ip => {127,0,0,1}, port => PortNode2}]}}, '_'], 10000),
-    1 = meck:num_calls(erline_dht_event_handler, handle_event, [{get_peers, r, {127,0,0,1}, PortNode1, {nodes, HashNode1, InfoHash, [#{hash => HashNode2, ip => {127,0,0,1}, port => PortNode2}]}}, '_']),
-    ok = meck:wait(erline_dht_event_handler, handle_event, [{get_peers, r, {127,0,0,1}, PortNode2, {nodes, HashNode2, InfoHash, [#{hash => HashNode1, ip => {127,0,0,1}, port => PortNode1}]}}, '_'], 10000),
-    1 = meck:num_calls(erline_dht_event_handler, handle_event, [{get_peers, r, {127,0,0,1}, PortNode2, {nodes, HashNode2, InfoHash, [#{hash => HashNode1, ip => {127,0,0,1}, port => PortNode1}]}}, '_']),
-    %
-    % Validate mock
-    true = meck:validate(erline_dht_event_handler),
-    ok = meck:unload(erline_dht_event_handler),
+    ok = meck:wait(erline_dht_event_handler, handle_event, [{find_node, q, {127,0,0,1}, PortNode3, {HashNode3, HashNode3}}, '_'], 10000),
+    1 = meck:num_calls(erline_dht_event_handler, handle_event, [{find_node, q, {127,0,0,1}, PortNode3, {HashNode3, HashNode3}}, '_']),
+    ok = meck:wait(erline_dht_event_handler, handle_event, [{find_node, r, {127,0,0,1}, PortNode1, {HashNode1, [#{hash => HashNode2, ip => {127,0,0,1}, port => PortNode2}]}}, '_'], 10000),
+    1 = meck:num_calls(erline_dht_event_handler, handle_event, [{find_node, r, {127,0,0,1}, PortNode1, {HashNode1, [#{hash => HashNode2, ip => {127,0,0,1}, port => PortNode2}]}}, '_']),
     %
     % Check whether each node has the other node in it's bucket
     2 = lists:foldl(fun(#{nodes := Nodes}, AccTotal) ->
@@ -143,6 +130,22 @@ test_basic(_Config) ->
     2 = lists:foldl(fun(#{nodes := Nodes}, AccTotal) ->
         AccTotal + Nodes
     end, 0, erline_dht_bucket:get_buckets_filling(node3)),
+    %
+    % Get peers request to node3
+    InfoHash = <<14,23,55,72,102,36,192,45,115,90,14,23,55,72,102,36,192,45,115,90>>,
+    ok = erline_dht_bucket:get_peers(node3, InfoHash),
+    % Request to two known nodes
+    ok = meck:wait(2, erline_dht_event_handler, handle_event, [{get_peers, q, {127,0,0,1}, PortNode3, {HashNode3, InfoHash}}, '_'], 10000),
+    2 = meck:num_calls(erline_dht_event_handler, handle_event, [{get_peers, q, {127,0,0,1}, PortNode3, {HashNode3, InfoHash}}, '_']),
+    % Responses from two nodes
+    ok = meck:wait(erline_dht_event_handler, handle_event, [{get_peers, r, {127,0,0,1}, PortNode1, {nodes, HashNode1, InfoHash, [#{hash => HashNode2, ip => {127,0,0,1}, port => PortNode2}]}}, '_'], 10000),
+    1 = meck:num_calls(erline_dht_event_handler, handle_event, [{get_peers, r, {127,0,0,1}, PortNode1, {nodes, HashNode1, InfoHash, [#{hash => HashNode2, ip => {127,0,0,1}, port => PortNode2}]}}, '_']),
+    ok = meck:wait(erline_dht_event_handler, handle_event, [{get_peers, r, {127,0,0,1}, PortNode2, {nodes, HashNode2, InfoHash, [#{hash => HashNode1, ip => {127,0,0,1}, port => PortNode1}]}}, '_'], 10000),
+    1 = meck:num_calls(erline_dht_event_handler, handle_event, [{get_peers, r, {127,0,0,1}, PortNode2, {nodes, HashNode2, InfoHash, [#{hash => HashNode1, ip => {127,0,0,1}, port => PortNode1}]}}, '_']),
+    %
+    % Validate mock
+    true = meck:validate(erline_dht_event_handler),
+    ok = meck:unload(erline_dht_event_handler),
     %
     % Stop the nodes
     ok = erline_dht_bucket:stop(PidNode1),
