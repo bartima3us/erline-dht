@@ -654,11 +654,11 @@ handle_get_peers_response_test_() ->
             ok = meck:new([erline_dht_message, erline_dht_helper, erline_dht_db_ets]),
             ok = meck:expect(erline_dht_message, respond_ping, [{12,34,92,155}, 6862, sock, <<0,2>>, <<"h45h">>], ok),
             ok = meck:expect(erline_dht_helper, notify, fun
-                (MatchEventMgrPid, {get_peers, r, {12,34,92,154}, 6861, {nodes, <<"1nf0_h45h">>, MatchNodes}}) when
+                (MatchEventMgrPid, {get_peers, r, {12,34,92,154}, 6861, {nodes, <<"n0d3_h45h">>, <<"1nf0_h45h">>, MatchNodes}}) when
                     MatchEventMgrPid =:= EventMgrPid,
                     MatchNodes =:= Nodes
                     -> ok;
-                (MatchEventMgrPid, {get_peers, r, {12,34,92,154}, 6861, {peers, <<"1nf0_h45h">>, MatchPeers}}) when
+                (MatchEventMgrPid, {get_peers, r, {12,34,92,154}, 6861, {peers, <<"n0d3_h45h">>, <<"1nf0_h45h">>, MatchPeers}}) when
                     MatchEventMgrPid =:= EventMgrPid,
                     MatchPeers =:= Peers
                     -> ok
@@ -771,7 +771,7 @@ handle_get_peers_response_test_() ->
                 ),
                 ?assertEqual(
                     1,
-                    meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {get_peers, r, {12,34,92,154}, 6861, {nodes, <<"1nf0_h45h">>, Nodes}}])
+                    meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {get_peers, r, {12,34,92,154}, 6861, {nodes, <<"n0d3_h45h">>, <<"1nf0_h45h">>, Nodes}}])
                 ),
                 ?assertEqual(
                     2,
@@ -837,7 +837,7 @@ handle_get_peers_response_test_() ->
                 ),
                 ?assertEqual(
                     1,
-                    meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {get_peers, r, {12,34,92,154}, 6861, {peers, <<"1nf0_h45h">>, Peers}}])
+                    meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {get_peers, r, {12,34,92,154}, 6861, {peers, <<"n0d3_h45h">>, <<"1nf0_h45h">>, Peers}}])
                 ),
                 ?assertEqual(
                     2,

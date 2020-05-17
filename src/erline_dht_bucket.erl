@@ -526,7 +526,8 @@ handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{}) ->
         socket        = Socket,
         buckets       = Buckets,
         db_mod        = DbMod,
-        event_mgr_pid = EventMgrPid
+        event_mgr_pid = EventMgrPid,
+        my_node_hash  = MyNodeHash
     } = State,
     NodesForSearch = case {Ip, Port} of
         {undefined, undefined} ->
@@ -534,8 +535,7 @@ handle_cast({get_peers, Ip, Port, InfoHash}, State = #state{}) ->
             LocalPeers = find_local_peers_by_info_hash(InfoHash, State),
             % First peers are from self node
             {ok, {LocalIp, LocalPort}} = inet:sockname(Socket),
-            ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, LocalIp, LocalPort, {peers, InfoHash, LocalPeers}}),
-            io:format("xxxxxx LocalPeers = ~p~n", [LocalPeers]),
+            ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, LocalIp, LocalPort, {peers, MyNodeHash, InfoHash, LocalPeers}}),
             % Flatten all nodes in all buckets
             lists:foldl(fun (#bucket{nodes = Nodes}, NodesAcc) ->
                 NodesAcc ++ Nodes
@@ -911,7 +911,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
             case What of
                 % Continue search
                 nodes ->
-                    ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, Ip, Port, {nodes, InfoHash, NodesOrPeers}}),
+                    ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, Ip, Port, {nodes, NewNodeHash, InfoHash, NodesOrPeers}}),
                     ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
                         % Check whether we already have that node in ETS
                         case DbMod:get_requested_node(Name, FoundIp, FoundPort, InfoHash) of
@@ -925,8 +925,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
                     State;
                 % Stop search and save info hashes
                 peers ->
-                    io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, NodesOrPeers]),
-                    ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, Ip, Port, {peers, InfoHash, NodesOrPeers}}),
+                    ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, Ip, Port, {peers, NewNodeHash, InfoHash, NodesOrPeers}}),
                     lists:foldl(fun (#{ip := FoundIp, port := FoundPort}, StateAcc) ->
                         ok = add_node_without_ping(Name, FoundIp, FoundPort),
                         add_peer(InfoHash, FoundIp, FoundPort, StateAcc)

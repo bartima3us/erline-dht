@@ -64,6 +64,12 @@ handle_event({find_node, q, _Ip, _Port, {_NodeHash, _Target}}, _State) ->
 handle_event({find_node, r, _Ip, _Port, {_NodeHash, _Nodes}}, _State) ->
     {ok, []};
 
+handle_event({get_peers, q, _Ip, _Port, {_NodeHash, _InfoHash}}, _State) ->
+    {ok, []};
+
+handle_event({get_peers, r, _Ip, _Port, {nodes, _NodeHash, _InfoHash, _Nodes}}, _State) ->
+    {ok, []};
+
 handle_event(_Event, State) ->
     {ok, State}.
 
