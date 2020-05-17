@@ -114,7 +114,6 @@ test_basic(_Config) ->
     1 = meck:num_calls(erline_dht_event_handler, handle_event, [{find_node, r, {127,0,0,1}, PortNode2, {HashNode2, [#{hash => HashNode1, ip => {127,0,0,1}, port => PortNode1}]}}, '_']),
     %
     % Find node request from node3 to node1
-    ok = meck:reset(erline_dht_event_handler),
     ok = meck:wait(erline_dht_event_handler, handle_event, [{find_node, q, {127,0,0,1}, PortNode3, {HashNode3, HashNode3}}, '_'], 10000),
     1 = meck:num_calls(erline_dht_event_handler, handle_event, [{find_node, q, {127,0,0,1}, PortNode3, {HashNode3, HashNode3}}, '_']),
     ok = meck:wait(erline_dht_event_handler, handle_event, [{find_node, r, {127,0,0,1}, PortNode1, {HashNode1, [#{hash => HashNode2, ip => {127,0,0,1}, port => PortNode2}]}}, '_'], 10000),
