@@ -62,8 +62,11 @@ test_basic(_Config) ->
     %
     % Start nodes
     {ok, PidNode1} = erline_dht_bucket:start_link(node1, 0),
+    {ok, _} = erline_dht_nan_cache:start_link(node1),
     {ok, PidNode2} = erline_dht_bucket:start_link(node2, 0),
+    {ok, _} = erline_dht_nan_cache:start_link(node2),
     {ok, PidNode3} = erline_dht_bucket:start_link(node3, 0),
+    {ok, _} = erline_dht_nan_cache:start_link(node3),
     %
     % Get port
     PortNode1 = erline_dht_bucket:get_port(PidNode1),

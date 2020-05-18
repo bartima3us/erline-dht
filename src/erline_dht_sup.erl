@@ -19,15 +19,25 @@
 -export([init/1]).
 
 -define(SERVER, ?MODULE).
--define(ID(Name), {erline_dht_bucket, Name}).
--define(SPEC(Name, Port), #{
-    id          => ?ID(Name),
-    start       => {erline_dht_bucket, start_link, [Name, Port]},
-    restart     => temporary,
-    shutdown    => 5000,
-    type        => worker,
-    modules     => [erline_dht_bucket]
-}).
+-define(BUCKET_ID(Name), {erline_dht_bucket, Name}).
+-define(NAN_CACHE_ID(Name), {erline_dht_nan_cache, Name}).
+-define(SPEC(Name, Port), [
+#{
+        id          => ?BUCKET_ID(Name),
+        start       => {erline_dht_bucket, start_link, [Name, Port]},
+        restart     => temporary,
+        shutdown    => 5000,
+        type        => worker,
+        modules     => [erline_dht_bucket]
+    },
+    #{
+        id          => ?NAN_CACHE_ID(Name),
+        start       => {erline_dht_nan_cache, start_link, [Name]},
+        restart     => temporary,
+        shutdown    => 5000,
+        type        => worker,
+        modules     => [erline_dht_nan_cache]
+    }]).
 
 %%====================================================================
 %% API functions
@@ -48,7 +58,7 @@ start(Name) ->
 
 start(Name, Port) ->
     Children = supervisor:which_children(?MODULE),
-    case lists:keysearch(?ID(Name), 1, Children) of
+    case lists:keysearch(?BUCKET_ID(Name), 1, Children) of
         false      ->
             {ok, _} = supervisor:start_child(?MODULE, ?SPEC(Name, Port)),
             ok;
@@ -61,12 +71,13 @@ start(Name, Port) ->
 %% Child :: {Id,StartFunc,Restart,Shutdown,Type,Modules}
 %%
 init([]) ->
+    % @todo make custom config for each node
     Specs = case erline_dht:get_env(auto_start) of
-        true      -> [?SPEC(node1, undefined)];
-        undefined -> [?SPEC(node1, undefined)];
+        true      -> ?SPEC(node1, undefined);
+        undefined -> ?SPEC(node1, undefined);
         false     -> []
     end,
-    {ok, { {one_for_one, 5, 10}, Specs} }.
+    {ok, {{one_for_all, 5, 10}, Specs}}.
 
 %%====================================================================
 %% Internal functions

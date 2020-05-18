@@ -335,7 +335,7 @@ handle_find_node_query_test_() ->
             ok = meck:expect(erline_dht_helper, encode_compact_node_info, ['_'], <<"c0mp4ct_n0d35_1nf0">>),
             ok = meck:expect(erline_dht_helper, local_time, [], {{2020,7,1},{12,0,0}}),
             ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, ['_', {12,34,92,155}, 6862], [#node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>}]),
-            ok = meck:expect(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', #node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, last_changed = {{2020,7,1},{12,0,0}}}], true)
+            ok = meck:expect(erline_dht_db_ets, update_not_assigned_node, ['_', #node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, last_changed = {{2020,7,1},{12,0,0}}}], true)
         end,
         fun(_) ->
             true = meck:validate([erline_dht_message, erline_dht_helper, erline_dht_db_ets]),
@@ -369,7 +369,7 @@ handle_find_node_query_test_() ->
                 ),
                 ?assertEqual(
                     1,
-                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', #node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, last_changed = {{2020,7,1},{12,0,0}}}])
+                    meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', #node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, last_changed = {{2020,7,1},{12,0,0}}}])
                 )
             end
         }]
@@ -537,7 +537,7 @@ handle_get_peers_query_test_() ->
             ok = meck:expect(erline_dht_helper, encode_peer_info, ['_'], <<"c0mp4ct_p33r5">>),
             ok = meck:expect(erline_dht_helper, local_time, [], {{2020,7,1},{12,0,0}}),
             ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, ['_', {12,34,92,155}, 6862], [#node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>}]),
-            ok = meck:expect(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', #node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, token_sent = <<"t0k3n">>, last_changed = {{2020,7,1},{12,0,0}}}], true)
+            ok = meck:expect(erline_dht_db_ets, update_not_assigned_node, ['_', #node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, token_sent = <<"t0k3n">>, last_changed = {{2020,7,1},{12,0,0}}}], true)
         end,
         fun(_) ->
             true = meck:validate([erline_dht_message, erline_dht_helper, erline_dht_db_ets]),
@@ -571,7 +571,7 @@ handle_get_peers_query_test_() ->
                 ),
                 ?assertEqual(
                     1,
-                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', #node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, token_sent = <<"t0k3n">>, last_changed = {{2020,7,1},{12,0,0}}}])
+                    meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', #node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, token_sent = <<"t0k3n">>, last_changed = {{2020,7,1},{12,0,0}}}])
                 ),
                 ok = meck:reset([erline_dht_helper, erline_dht_db_ets])
             end
@@ -604,7 +604,7 @@ handle_get_peers_query_test_() ->
                 ),
                 ?assertEqual(
                     1,
-                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', #node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, token_sent = <<"t0k3n">>, last_changed = {{2020,7,1},{12,0,0}}}])
+                    meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', #node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, token_sent = <<"t0k3n">>, last_changed = {{2020,7,1},{12,0,0}}}])
                 )
             end
         }]
@@ -1361,7 +1361,7 @@ handle_response_generic_test_() ->
                 (_, {12,34,92,185}, 6882) -> [#node{ip_port = {{12,34,92,185}, 6882}}];
                 (_, {12,34,92,186}, 6883) -> [#node{ip_port = {{12,34,92,186}, 6883}}]
             end),
-            ok = meck:expect(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', '_'], true),
+            ok = meck:expect(erline_dht_db_ets, update_not_assigned_node, ['_', '_'], true),
             ok = meck:expect(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, ['_', {12,34,92,185}, 6882], true),
             ok = meck:expect(erline_dht_message, send_find_node, fun
                 ({12,34,92,185}, 6882, sock, <<0,0>>, <<"h45h">>, <<"h45h">>) -> ok;
@@ -1594,7 +1594,7 @@ handle_response_generic_test_() ->
                 ),
                 ?assertEqual(
                     1,
-                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', '_'])
+                    meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', '_'])
                 ),
                 ok = meck:reset([erline_dht_helper, erline_dht_db_ets])
             end
@@ -1660,7 +1660,7 @@ handle_response_generic_test_() ->
                 ),
                 ?assertEqual(
                     1,
-                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', '_'])
+                    meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', '_'])
                 ),
                 ?assertEqual(
                     1,
@@ -1689,7 +1689,7 @@ handle_response_generic_test_() ->
                 ),
                 ?assertEqual(
                     2,
-                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', '_'])
+                    meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', '_'])
                 ),
                 ?assertEqual(
                     0,
@@ -1852,7 +1852,7 @@ update_node_test_() ->
         fun() ->
             ok = meck:new([erline_dht_helper, erline_dht_db_ets]),
             ok = meck:expect(erline_dht_helper, get_distance, [<<"my_h45h">>, <<"n3w_h45h">>], {ok, 2}),
-            ok = meck:expect(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', UpdatedNode], true),
+            ok = meck:expect(erline_dht_db_ets, update_not_assigned_node, ['_', UpdatedNode], true),
             ok = meck:expect(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, ['_', {12,34,92,154}, 6861], true)
         end,
         fun(_) ->
@@ -1894,7 +1894,7 @@ update_node_test_() ->
                 ),
                 ?assertEqual(
                     1,
-                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', UpdatedNode])
+                    meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', UpdatedNode])
                 ),
                 ok = meck:reset(erline_dht_db_ets)
             end
@@ -1991,7 +1991,7 @@ update_node_test_() ->
                 ),
                 ?assertEqual(
                     1,
-                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', UpdatedNode])
+                    meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', UpdatedNode])
                 ),
                 ok = meck:reset(erline_dht_db_ets)
             end
@@ -2022,7 +2022,7 @@ update_node_test_() ->
                 ),
                 ?assertEqual(
                     1,
-                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', UpdatedNode])
+                    meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', UpdatedNode])
                 ),
                 ok = meck:reset(erline_dht_db_ets)
             end
@@ -2035,7 +2035,7 @@ update_node_test_() ->
                 ),
                 ?assertEqual(
                     1,
-                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', UpdatedNode])
+                    meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', UpdatedNode])
                 )
             end
         }]
@@ -2109,7 +2109,7 @@ maybe_clear_bucket_test_() ->
         fun() ->
             ok = meck:new(erline_dht_db_ets),
             ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, fun (_, _, _) -> [] end),
-            ok = meck:expect(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', '_'], true)
+            ok = meck:expect(erline_dht_db_ets, update_not_assigned_node, ['_', '_'], true)
         end,
         fun(_) ->
             true = meck:validate(erline_dht_db_ets),
@@ -2137,7 +2137,7 @@ maybe_clear_bucket_test_() ->
                 ),
                 ?assertEqual(
                     0,
-                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', '_'])
+                    meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', '_'])
                 )
             end
         },
@@ -2163,7 +2163,7 @@ maybe_clear_bucket_test_() ->
                 ),
                 ?assertEqual(
                     0,
-                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', '_'])
+                    meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', '_'])
                 )
             end
         },
@@ -2209,7 +2209,7 @@ maybe_clear_bucket_test_() ->
                 ),
                 ?assertEqual(
                     1,
-                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', NodeToRemove])
+                    meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', NodeToRemove])
                 )
             end
         }]
@@ -2398,7 +2398,7 @@ insert_info_hash_test_() ->
                 (_, {12,34,92,159}, 6866) -> [#node{ip_port = {{12,34,92,159}, 6866}, hash = <<"f4l53_h45h">>}];
                 (_, {12,34,92,160}, 6867) -> []
             end),
-            ok = meck:expect(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', '_'], true),
+            ok = meck:expect(erline_dht_db_ets, update_not_assigned_node, ['_', '_'], true),
             ok = meck:expect(erline_dht_helper, get_distance, fun
                 (<<"1nf0_h45h2">>, <<"f4l53_h45h">>) -> {error, {malformed_hashes, <<"1nf0_h45h2">>, <<"f4l53_h45h">>}};
                 (<<"1nf0_h45h2">>, <<"h45h1">>)      -> {ok, 1};
@@ -2723,7 +2723,7 @@ init_not_active_nodes_replacement_test_() ->
             ok = meck:new([erline_dht_db_ets, erline_dht_message]),
             ok = meck:expect(erline_dht_db_ets, get_not_assigned_nodes, ['_', 0], ?NODES_LIST),
             ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, fun (_, Ip, Port) -> [#node{ip_port = {Ip, Port}}] end),
-            ok = meck:expect(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', '_'], true),
+            ok = meck:expect(erline_dht_db_ets, update_not_assigned_node, ['_', '_'], true),
             ok = meck:expect(erline_dht_message, send_ping, ['_', '_', '_', '_', '_'], ok)
         end,
         fun(_) ->
@@ -2747,7 +2747,7 @@ init_not_active_nodes_replacement_test_() ->
                 ),
                 ?assertEqual(
                     10,
-                    meck:num_calls(erline_dht_db_ets, insert_to_not_assigned_nodes, ['_', '_'])
+                    meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', '_'])
                 ),
                 ?assertEqual(
                     10,

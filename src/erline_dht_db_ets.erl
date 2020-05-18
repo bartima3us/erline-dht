@@ -22,6 +22,7 @@
     get_not_assigned_nodes/2,
     get_not_assigned_node/3,
     insert_to_not_assigned_nodes/2,
+    update_not_assigned_node/2,
     delete_from_not_assigned_nodes_by_ip_port/3,
     delete_from_not_assigned_nodes_by_dist_date/3
 ]).
@@ -116,6 +117,19 @@ get_not_assigned_node(NodeName, Ip, Port) ->
 ) -> true.
 
 insert_to_not_assigned_nodes(NodeName, Node) ->
+    ok = erline_dht_nan_cache:add(NodeName, 1),
+    true = ets:insert(?NOT_ASSIGNED_NODES_TABLE(NodeName), Node).
+
+
+%%
+%%
+%%
+-spec update_not_assigned_node(
+    NodeName :: atom(),
+    Node     :: #node{}
+) -> true.
+
+update_not_assigned_node(NodeName, Node) ->
     true = ets:insert(?NOT_ASSIGNED_NODES_TABLE(NodeName), Node).
 
 
@@ -129,6 +143,7 @@ insert_to_not_assigned_nodes(NodeName, Node) ->
 ) -> true.
 
 delete_from_not_assigned_nodes_by_ip_port(NodeName, Ip, Port) ->
+    ok = erline_dht_nan_cache:sub(NodeName, 1),
     true = ets:match_delete(?NOT_ASSIGNED_NODES_TABLE(NodeName), #node{ip_port = {Ip, Port}, _ = '_'}).
 
 
@@ -151,7 +166,8 @@ delete_from_not_assigned_nodes_by_dist_date(NodeName, Distance, Date) ->
         (#node{}) ->
             false
     end),
-    ets:select_delete(?NOT_ASSIGNED_NODES_TABLE(NodeName), MatchSpec),
+    DeletedAmount = ets:select_delete(?NOT_ASSIGNED_NODES_TABLE(NodeName), MatchSpec),
+    ok = erline_dht_nan_cache:sub(NodeName, DeletedAmount),
     ok.
 
 

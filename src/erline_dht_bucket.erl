@@ -371,7 +371,7 @@ init([Name, PortArg]) ->
         [NewBucket | AccBuckets]
     end, [], lists:seq(0, erlang:bit_size(MyNodeHash))),
     % Create DB
-    DbMod = erline_dht:get_env(db_mod, erline_dht_db_ets),
+    DbMod = erline_dht:get_env(db_mod, ?DEFAULT_DB_MOD),
     ok = DbMod:init(Name),
     % Start event manager
     {ok, EventMgrPid} = gen_event:start_link(),
@@ -392,7 +392,7 @@ init([Name, PortArg]) ->
         update_tokens_timer             = schedule_update_tokens(),
         db_mod                          = DbMod,
         event_mgr_pid                   = EventMgrPid,
-        not_assigned_clearing_threshold = K * 100,
+        not_assigned_clearing_threshold = K * 200,
         valid_tokens                    = [erline_dht_helper:generate_random_binary(20)]
     },
     % Bootstrap
@@ -925,6 +925,8 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
                     State;
                 % Stop search and save info hashes
                 peers ->
+                    timer:sleep(500), % @todo make proper throttling
+                    io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, NodesOrPeers]),
                     ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, Ip, Port, {peers, NewNodeHash, InfoHash, NodesOrPeers}}),
                     lists:foldl(fun (#{ip := FoundIp, port := FoundPort}, StateAcc) ->
                         ok = add_node_without_ping(Name, FoundIp, FoundPort),
@@ -1154,7 +1156,12 @@ do_announce_peer_async(Bucket, Node = #node{ip_port = {Ip, Port}}, InfoHash, Tok
     State       :: #state{}
 ) -> NewState :: #state{}.
 
-handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, DoFindNodes, State = #state{my_node_hash  = MyNodeHash}) ->
+handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, DoFindNodes, State) ->
+    #state{
+        name                            = NodeName,
+        my_node_hash                    = MyNodeHash,
+        not_assigned_clearing_threshold = NotAssignedClearingThreshold
+    } = State,
     case erline_dht_helper:get_distance(MyNodeHash, NewNodeHash) of
         {ok, NewDist} ->
             Params = [
@@ -1179,7 +1186,9 @@ handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, DoFindNodes,
                 % Not assigned to the bucket
                 false ->
                     NewState0 = update_node(Ip, Port, [{active_txs, NewActiveTx}], State),
-                    {ok, NewState1} = case DoFindNodes of
+                    % @todo add a test for: NotAssignedClearingThreshold =< DbMod:get_not_assigned_nodes(NodeName)
+                    {ok, NewState1} = case DoFindNodes andalso NotAssignedClearingThreshold >= erline_dht_nan_cache:get_amount(NodeName) of
+%%                    {ok, NewState1} = case DoFindNodes of
                         true  -> do_find_node_async(Ip, Port, MyNodeHash, NewState0); % Relevant for ping only
                         false -> {ok, NewState0}
                     end,
@@ -1323,7 +1332,7 @@ update_node(Bucket, Node = #node{ip_port = {Ip, Port}}, Params, State = #state{}
             % Check for `unassign` param
             NewBuckets1 = case lists:member(unassign, Params) of
                 true ->
-                    true = DbMod:insert_to_not_assigned_nodes(Name, UpdatedNode),
+                    true = DbMod:update_not_assigned_node(Name, UpdatedNode),
                     NewNodes1 = lists:keydelete({Ip, Port}, #node.ip_port, Nodes),
                     lists:keyreplace(CurrDist, #bucket.distance, Buckets, Bucket#bucket{nodes = NewNodes1});
                 false ->
@@ -1339,7 +1348,7 @@ update_node(Bucket, Node = #node{ip_port = {Ip, Port}}, Params, State = #state{}
                     State#state{buckets = NewBuckets};
                 % Just put updated node in the not assigned nodes list
                 false ->
-                    true = DbMod:insert_to_not_assigned_nodes(Name, UpdatedNode),
+                    true = DbMod:update_not_assigned_node(Name, UpdatedNode),
                     State
             end
     end.
@@ -1685,7 +1694,7 @@ clear_not_assigned_nodes(#state{name = Name, db_mod = DbMod}) ->
 clear_not_assigned_nodes(Distance, #state{name = Name, db_mod = DbMod, not_assigned_clearing_threshold = Threshold}) ->
     Dt = erline_dht_helper:change_datetime(erline_dht_helper:local_time(), ?ACTIVE_NOT_ASSIGNED_NODES_TTL),
     case DbMod:get_not_assigned_nodes(Name, Distance) of
-        Nodes when length(Nodes) > Threshold ->
+        Nodes when length(Nodes) > Threshold -> % @todo threshold using is inconsistent
             SortedNodes = lists:sort(fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
                 LastChanged1 >= LastChanged2
             end, Nodes),
