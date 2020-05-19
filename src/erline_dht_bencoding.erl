@@ -1,3 +1,9 @@
+%%%-------------------------------------------------------------------
+%%% @doc
+%%% Bencoding implementation in Erlang.
+%%% Source: https://wiki.theory.org/index.php/Decoding_encoding_bencoded_data_with_erlang
+%%% @end
+%%%-------------------------------------------------------------------
 -module(erline_dht_bencoding).
 
 %% API

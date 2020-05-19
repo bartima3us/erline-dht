@@ -392,7 +392,7 @@ init([Name, PortArg]) ->
         update_tokens_timer             = schedule_update_tokens(),
         db_mod                          = DbMod,
         event_mgr_pid                   = EventMgrPid,
-        not_assigned_clearing_threshold = K * 200,
+        not_assigned_clearing_threshold = K * 300,
         valid_tokens                    = [erline_dht_helper:generate_random_binary(20)]
     },
     % Bootstrap

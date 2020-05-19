@@ -198,6 +198,7 @@ respond_error(Socket, Ip, Port, TxId, ErrorCode, ErrorDescription) ->
 
 %%  @doc
 %%  Parse KRPC response. http://bittorrent.org/beps/bep_0005.html#krpc-protocol
+%%  Validate everything because network is a Wild West!
 %%  @end
 -spec parse_krpc_response(
     Response    :: binary(),
@@ -236,12 +237,20 @@ parse_krpc_response(Response, ActiveTxs) ->
                                 {value, ActiveTx = {ReqType, TxId}} ->
                                     case OtherY of
                                         <<"r">> ->
-                                            {ok, {dict, R}} = dict:find(<<"r">>, ResponseDict),
-                                            {ok, ReqType, r, parse_response_dict(ReqType, TxId, R), ActiveTxs -- [ActiveTx]};
+                                            case dict:find(<<"r">>, ResponseDict) of
+                                                {ok, {dict, R}} ->
+                                                    {ok, ReqType, r, parse_response_dict(ReqType, TxId, R), ActiveTxs -- [ActiveTx]};
+                                                MalformedR ->
+                                                    {error, {bad_response, MalformedR}}
+                                            end;
                                         <<"e">> ->
                                             % Example: {ok,{list,[202,<<"Server Error">>]}
-                                            {ok, {list, [RespErrCode, RespErrReason]}} = dict:find(<<"e">>, ResponseDict),
-                                            {error, {krpc_error, RespErrCode, RespErrReason}, ActiveTxs -- [ActiveTx]};
+                                            case dict:find(<<"e">>, ResponseDict) of
+                                                {ok, {list, [RespErrCode, RespErrReason]}} ->
+                                                    {error, {krpc_error, RespErrCode, RespErrReason}, ActiveTxs -- [ActiveTx]};
+                                                MalformedE ->
+                                                    {error, {bad_response, MalformedE}}
+                                            end;
                                         BadType ->
                                             {error, {bad_type, BadType}, ActiveTxs -- [ActiveTx]}
                                     end;

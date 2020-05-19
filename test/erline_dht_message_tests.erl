@@ -507,6 +507,22 @@ parse_krpc_response_test_() ->
                     erline_dht_message:parse_krpc_response(<<"b4d_r35p0n53">>, ActiveTxs)
                 )
             end
+        },
+        {"Parse KRPC response. Received malformed error response.",
+            fun() ->
+                ?assertEqual(
+                    {error, {bad_response, {ok, {list, [<<"A Generic Error Ocurred">>]}}}},
+                    erline_dht_message:parse_krpc_response(<<"d1:el23:A Generic Error Ocurrede1:t2:aa1:y1:ee">>, ActiveTxs)
+                )
+            end
+        },
+        {"Parse KRPC response. Received malformed normal response.",
+            fun() ->
+                ?assertEqual(
+                    {error, {bad_response, {ok, {list, [<<"r35p0n53">>]}}}},
+                    erline_dht_message:parse_krpc_response(<<"d1:rl8:r35p0n53e1:t2:aa1:y1:re">>, ActiveTxs)
+                )
+            end
         }]
     }.
 
