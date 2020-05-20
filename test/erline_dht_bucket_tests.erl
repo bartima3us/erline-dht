@@ -62,7 +62,8 @@
     update_tokens_timer                 :: reference(),
     db_mod                              :: module(),
     event_mgr_pid                       :: pid(),
-    not_assigned_clearing_threshold     :: pos_integer(),
+    nan_per_bucket_limit                :: pos_integer(),
+    nan_limit                           :: pos_integer(),
     valid_tokens                = []    :: [binary()],
     peer_port                           :: inet:port_number()
 }).
@@ -2782,7 +2783,7 @@ clear_not_assigned_nodes_test_() ->
             fun() ->
                 ?assertEqual(
                     ok,
-                    erline_dht_bucket:clear_not_assigned_nodes(0, State#state{not_assigned_clearing_threshold = 3})
+                    erline_dht_bucket:clear_not_assigned_nodes(0, State#state{nan_per_bucket_limit = 3})
                 ),
                 ?assertEqual(
                     3,
@@ -2799,7 +2800,7 @@ clear_not_assigned_nodes_test_() ->
             fun() ->
                 ?assertEqual(
                     ok,
-                    erline_dht_bucket:clear_not_assigned_nodes(0, State#state{not_assigned_clearing_threshold = 2})
+                    erline_dht_bucket:clear_not_assigned_nodes(0, State#state{nan_per_bucket_limit = 2})
                 ),
                 ?assertEqual(
                     3,
@@ -2816,7 +2817,7 @@ clear_not_assigned_nodes_test_() ->
             fun() ->
                 ?assertEqual(
                     ok,
-                    erline_dht_bucket:clear_not_assigned_nodes(0, State#state{not_assigned_clearing_threshold = 5})
+                    erline_dht_bucket:clear_not_assigned_nodes(0, State#state{nan_per_bucket_limit = 5})
                 ),
                 ?assertEqual(
                     3,
@@ -2833,7 +2834,7 @@ clear_not_assigned_nodes_test_() ->
             fun() ->
                 ?assertEqual(
                     ok,
-                    erline_dht_bucket:clear_not_assigned_nodes(0, State#state{not_assigned_clearing_threshold = 12})
+                    erline_dht_bucket:clear_not_assigned_nodes(0, State#state{nan_per_bucket_limit = 12})
                 ),
                 ?assertEqual(
                     0,

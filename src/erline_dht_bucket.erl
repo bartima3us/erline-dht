@@ -83,7 +83,7 @@
 -define(CLEAR_NOT_ASSIGNED_NODES_TIME, 60000). % 1 min
 -define(UPDATE_TOKENS_TIME, 300000). % 5 min
 -define(NOT_ACTIVE_NOT_ASSIGNED_NODES_TTL, 90). % 90 s
--define(ACTIVE_NOT_ASSIGNED_NODES_TTL, 300). % 5 min
+-define(ACTIVE_NOT_ASSIGNED_NODES_TTL, 600). % 10 min
 -define(ACTIVE_TTL, 840). % 14 min
 -define(GET_PEERS_SEARCH_TTL, 20). % 20 s
 -define(SUSPICIOUS_TTL, 900). % 15 min (ACTIVE_TTL + 1 min)
@@ -113,7 +113,8 @@
     update_tokens_timer                 :: reference(),
     db_mod                              :: module(),
     event_mgr_pid                       :: pid(),
-    not_assigned_clearing_threshold     :: pos_integer(), % Not assigned nodes
+    nan_per_bucket_limit                :: pos_integer(), % Max not assigned nodes in one bucket
+    nan_limit                           :: pos_integer(), % Max not assigned nodes through all buckets
     valid_tokens                = []    :: [binary()],
     peer_port                           :: inet:port_number()
 }).
@@ -392,7 +393,8 @@ init([Name, PortArg]) ->
         update_tokens_timer             = schedule_update_tokens(),
         db_mod                          = DbMod,
         event_mgr_pid                   = EventMgrPid,
-        not_assigned_clearing_threshold = K * 300,
+        nan_per_bucket_limit            = K * 50,
+        nan_limit                       = K * 400,
         valid_tokens                    = [erline_dht_helper:generate_random_binary(20)]
     },
     % Bootstrap
@@ -1158,9 +1160,9 @@ do_announce_peer_async(Bucket, Node = #node{ip_port = {Ip, Port}}, InfoHash, Tok
 
 handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, DoFindNodes, State) ->
     #state{
-        name                            = NodeName,
-        my_node_hash                    = MyNodeHash,
-        not_assigned_clearing_threshold = NotAssignedClearingThreshold
+        name         = NodeName,
+        my_node_hash = MyNodeHash,
+        nan_limit    = NanLimit
     } = State,
     case erline_dht_helper:get_distance(MyNodeHash, NewNodeHash) of
         {ok, NewDist} ->
@@ -1187,8 +1189,7 @@ handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, DoFindNodes,
                 false ->
                     NewState0 = update_node(Ip, Port, [{active_txs, NewActiveTx}], State),
                     % @todo add a test for: NotAssignedClearingThreshold =< DbMod:get_not_assigned_nodes(NodeName)
-                    {ok, NewState1} = case DoFindNodes andalso NotAssignedClearingThreshold >= erline_dht_nan_cache:get_amount(NodeName) of
-%%                    {ok, NewState1} = case DoFindNodes of
+                    {ok, NewState1} = case DoFindNodes andalso NanLimit >= erline_dht_nan_cache:get_amount(NodeName) of
                         true  -> do_find_node_async(Ip, Port, MyNodeHash, NewState0); % Relevant for ping only
                         false -> {ok, NewState0}
                     end,
@@ -1691,14 +1692,14 @@ clear_not_assigned_nodes(#state{name = Name, db_mod = DbMod}) ->
     State    :: #state{}
 ) -> ok.
 
-clear_not_assigned_nodes(Distance, #state{name = Name, db_mod = DbMod, not_assigned_clearing_threshold = Threshold}) ->
+clear_not_assigned_nodes(Distance, #state{name = Name, db_mod = DbMod, nan_per_bucket_limit = NanPerBucketLimit}) ->
     Dt = erline_dht_helper:change_datetime(erline_dht_helper:local_time(), ?ACTIVE_NOT_ASSIGNED_NODES_TTL),
     case DbMod:get_not_assigned_nodes(Name, Distance) of
-        Nodes when length(Nodes) > Threshold -> % @todo threshold using is inconsistent
+        Nodes when length(Nodes) > NanPerBucketLimit ->
             SortedNodes = lists:sort(fun (#node{last_changed = LastChanged1}, #node{last_changed = LastChanged2}) ->
                 LastChanged1 >= LastChanged2
             end, Nodes),
-            {_, NodesToRemove} = lists:split(Threshold, SortedNodes),
+            {_, NodesToRemove} = lists:split(NanPerBucketLimit, SortedNodes),
             ok = lists:foreach(fun (#node{ip_port = {Ip, Port}, last_changed = LastChanged}) ->
                 true = case LastChanged =< Dt of
                     true  -> DbMod:delete_from_not_assigned_nodes_by_ip_port(Name, Ip, Port);
