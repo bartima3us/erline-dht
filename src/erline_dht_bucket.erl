@@ -347,9 +347,9 @@ stop(Name) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([Name, PortArg]) ->
+init([NodeName, PortArg]) ->
     % Get my node hash
-    MyNodeHash = get_my_node_hash(),
+    MyNodeHash = get_my_node_hash(NodeName),
     % Open UDP socket
     SocketParams = [binary, {active, true}],
     OpenSocketFun = fun (Port) ->
@@ -359,7 +359,7 @@ init([Name, PortArg]) ->
         end
     end,
     {ok, Socket} = case PortArg of
-        undefined -> OpenSocketFun(erline_dht:get_env(port, 0));
+        undefined -> OpenSocketFun(erline_dht:get_env(NodeName, port, 0));
         PortArg   -> OpenSocketFun(PortArg)
     end,
     % Create buckets
@@ -372,18 +372,18 @@ init([Name, PortArg]) ->
         [NewBucket | AccBuckets]
     end, [], lists:seq(0, erlang:bit_size(MyNodeHash))),
     % Create DB
-    DbMod = erline_dht:get_env(db_mod, ?DEFAULT_DB_MOD),
-    ok = DbMod:init(Name),
+    DbMod = erline_dht:get_env(NodeName, db_mod, ?DEFAULT_DB_MOD),
+    ok = DbMod:init(NodeName),
     % Start event manager
     {ok, EventMgrPid} = gen_event:start_link(),
     % Schedule nodes clearing scheduler if necessary
-    ClearNotAssignedRef = case erline_dht:get_env(limit_nodes, true) of
+    ClearNotAssignedRef = case erline_dht:get_env(NodeName, limit_nodes, true) of
         true  -> schedule_clear_not_assigned_nodes();
         false -> undefined
     end,
-    K = erline_dht:get_env(k, 8),
+    K = erline_dht:get_env(NodeName, k, 8),
     NewState = #state{
-        name                            = Name,
+        name                            = NodeName,
         socket                          = Socket,
         k                               = K,
         my_node_hash                    = MyNodeHash,
@@ -401,15 +401,15 @@ init([Name, PortArg]) ->
     AddBootstrapNodeFun = fun
         (Address, Port) when is_list(Address) ->
             ok = case inet:getaddr(Address, inet) of
-                {ok, Ip} -> add_node(Name, Ip, Port);
+                {ok, Ip} -> add_node(NodeName, Ip, Port);
                 _ -> ok
             end;
         (Ip, Port) when is_tuple(Ip) ->
-            ok = add_node(Name, Ip, Port)
+            ok = add_node(NodeName, Ip, Port)
     end,
     ok = lists:foreach(fun ({AutoBootstrapNode, Port}) ->
         ok = AddBootstrapNodeFun(AutoBootstrapNode, Port)
-    end, erline_dht:get_env(auto_bootstrap_nodes, [])),
+    end, erline_dht:get_env(NodeName, auto_bootstrap_nodes, [])),
     {ok, NewState}.
 
 %%--------------------------------------------------------------------
@@ -1188,7 +1188,6 @@ handle_response_generic(Ip, Port, NewNodeHash, NewActiveTx, Bucket, DoFindNodes,
                 % Not assigned to the bucket
                 false ->
                     NewState0 = update_node(Ip, Port, [{active_txs, NewActiveTx}], State),
-                    % @todo add a test for: NotAssignedClearingThreshold =< DbMod:get_not_assigned_nodes(NodeName)
                     {ok, NewState1} = case DoFindNodes andalso NanLimit >= erline_dht_nan_cache:get_amount(NodeName) of
                         true  -> do_find_node_async(Ip, Port, MyNodeHash, NewState0); % Relevant for ping only
                         false -> {ok, NewState0}
@@ -1715,10 +1714,12 @@ clear_not_assigned_nodes(Distance, #state{name = Name, db_mod = DbMod, nan_per_b
 %%  @doc
 %%  Generate my node hash or retrieve it from config.
 %%  @end
--spec get_my_node_hash() -> binary().
+-spec get_my_node_hash(
+    NodeName :: atom()
+) -> binary().
 
-get_my_node_hash() ->
-    case erline_dht:get_env(node_hash, 20) of
+get_my_node_hash(NodeName) ->
+    case erline_dht:get_env(NodeName, node_hash, 20) of
         HashOpt when is_integer(HashOpt) ->
             % Peer ID Conventions: http://www.bittorrent.org/beps/bep_0020.html
             {_, _, Vsn} = lists:keyfind(?APP, 1, application:loaded_applications()),

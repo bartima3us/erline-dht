@@ -71,8 +71,7 @@ start(Name, Port) ->
 %% Child :: {Id,StartFunc,Restart,Shutdown,Type,Modules}
 %%
 init([]) ->
-    % @todo make custom config for each node
-    Specs = case erline_dht:get_env(auto_start) of
+    Specs = case erline_dht:get_env(node1, auto_start) of
         true      -> ?SPEC(node1, undefined);
         undefined -> ?SPEC(node1, undefined);
         false     -> []

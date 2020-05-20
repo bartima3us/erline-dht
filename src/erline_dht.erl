@@ -10,8 +10,8 @@
 -behaviour(application).
 
 -export([
-    get_env/1,
     get_env/2,
+    get_env/3,
     start_node/1,
     start_node/2,
     stop_node/1,
@@ -60,13 +60,19 @@ stop(_State) ->
 %%  Get environment variable.
 %%  @end
 -spec get_env(
-    Var :: atom()
+    NodeName :: atom(),
+    Var      :: atom()
 ) -> term().
 
-get_env(Var) ->
-    case application:get_env(?APP, Var) of
-        {ok, Val} -> Val;
-        undefined -> undefined
+get_env(NodeName, Var) ->
+    case application:get_env(?APP, NodeName) of
+        undefined ->
+            case application:get_env(?APP, Var) of
+                undefined -> undefined;
+                {ok, Val} -> Val
+            end;
+        {ok, Parameters} ->
+            proplists:get_value(Var, Parameters)
     end.
 
 
@@ -74,12 +80,16 @@ get_env(Var) ->
 %%  Get environment variable.
 %%  @end
 -spec get_env(
-    Var     :: atom(),
-    Default :: term()
+    NodeName :: atom(),
+    Var      :: atom(),
+    Default  :: term()
 ) -> term().
 
-get_env(Var, Default) ->
-    application:get_env(?APP, Var, Default).
+get_env(NodeName, Var, Default) ->
+    case application:get_env(?APP, NodeName, undefined) of
+        undefined  -> application:get_env(?APP, Var, Default);
+        Parameters -> proplists:get_value(Var, Parameters, Default)
+    end.
 
 
 %%  @doc

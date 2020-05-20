@@ -92,7 +92,7 @@ get_amount(NodeName) ->
 %% @end
 %%--------------------------------------------------------------------
 init([NodeName]) ->
-    DbMod = erline_dht:get_env(db_mod, ?DEFAULT_DB_MOD),
+    DbMod = erline_dht:get_env(NodeName, db_mod, ?DEFAULT_DB_MOD),
     erlang:send_after(?RECONCILE_TIME, self(), reconcile),
     {ok, #state{name = NodeName, db_mod = DbMod}}.
 

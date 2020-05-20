@@ -156,7 +156,7 @@ erline_dht:set_peer_port(
 
 ## <a name="config">Config</a> ##
 
-Default sys.config:
+Default sys.config for all started nodes:
 ```
     {erline_dht, [
         {auto_start, true},
@@ -182,6 +182,37 @@ Default sys.config:
 * ```k``` - Amount of nodes in a single bucket.
 * ```port``` - If `0` - ErLineDHT will open any free port. If `inet:port_number()` - first of all, ErLineDHT will try to use specified port but in case it's already in use, ErLineDHT will open socket on any free port.
 * ```node_hash``` - If `pos_integer()` - ErLineDHT will generate random node hash by specified amount. If `binary()` - ErLineDHT will use specified node hash.
+
+If custom config for every node is required, use such notation:
+
+```
+    {erline_dht, [
+        {node_name1, [
+            {auto_start, true},
+            {auto_bootstrap_nodes, [
+                {"router.bittorrent.com", 6881},
+                {"dht.transmissionbt.com", 6881},
+                {"router.utorrent.com", 6881},
+                {"router.bitcomet.com", 6881},
+                {"dht.aelitis.com", 6881}
+            ]},
+            {db_mod, erline_dht_db_ets},
+            {limit_nodes, true},
+            {k, 8},
+            {port, 0},
+            {node_hash, 20}
+        ]},
+        {node_name2, [
+            {auto_start, true},
+            {auto_bootstrap_nodes, []},
+            {db_mod, erline_dht_db_ets},
+            {limit_nodes, false},
+            {k, 8},
+            {port, 6881},
+            {node_hash, 20}
+        ]}
+    ]}
+```
 
 ## <a name="events">Events</a> ##
 
