@@ -1347,7 +1347,7 @@ handle_response_generic_test_() ->
     },
     {setup,
         fun() ->
-            ok = meck:new([erline_dht_message, erline_dht_helper, erline_dht_db_ets]),
+            ok = meck:new([erline_dht_message, erline_dht_helper, erline_dht_db_ets, erline_dht_nan_cache]),
             ok = meck:expect(erline_dht_helper, get_distance, fun
                 (<<"h45h">>, <<"n3w_n0d3_h45h1">>) -> {error, {malformed_hashes, <<"h45h">>, <<"n3w_n0d3_h45h1">>}};
                 (<<"h45h">>, <<"n3w_n0d3_h45h2">>) -> {ok, 1};
@@ -1367,11 +1367,15 @@ handle_response_generic_test_() ->
             ok = meck:expect(erline_dht_message, send_find_node, fun
                 ({12,34,92,185}, 6882, sock, <<0,0>>, <<"h45h">>, <<"h45h">>) -> ok;
                 ({12,34,92,186}, 6883, sock, <<0,0>>, <<"h45h">>, <<"h45h">>) -> ok
+            end),
+            ok = meck:expect(erline_dht_nan_cache, get_amount, fun
+                (node1) -> 1001;
+                (_)     -> 1
             end)
         end,
         fun(_) ->
-            true = meck:validate([erline_dht_message, erline_dht_helper, erline_dht_db_ets]),
-            ok = meck:unload([erline_dht_message, erline_dht_helper, erline_dht_db_ets])
+            true = meck:validate([erline_dht_message, erline_dht_helper, erline_dht_db_ets, erline_dht_nan_cache]),
+            ok = meck:unload([erline_dht_message, erline_dht_helper, erline_dht_db_ets, erline_dht_nan_cache])
         end,
         [{"Generic handler. Handle response. New hash is malformed.",
             fun() ->
@@ -1674,7 +1678,7 @@ handle_response_generic_test_() ->
                 ok = meck:reset([erline_dht_helper, erline_dht_db_ets, erline_dht_message])
             end
         },
-        {"Generic handler. Handle response. Bucket is not found. Bucket has no free space. Do not need to do find_nodes.",
+        {"Generic handler. Handle response. Bucket is not found. Bucket has no free space. Do not need to do find_nodes because of argument.",
             fun() ->
                 ?assertEqual(
                     State,
@@ -1699,6 +1703,40 @@ handle_response_generic_test_() ->
                 ?assertEqual(
                     0,
                     meck:num_calls(erline_dht_message, send_find_node, [{12,34,92,186}, 6883, sock, <<0,0>>, <<"h45h">>, <<"h45h">>])
+                ),
+                ok = meck:reset([erline_dht_helper, erline_dht_db_ets, erline_dht_message])
+            end
+        },
+        {"Generic handler. Handle response. Bucket is not found. Bucket has no free space. Do not need to do find_nodes because not assigned nodes limit is exceeded.",
+            fun() ->
+                State0 = State#state{name = node1, nan_limit = 1000},
+                ?assertEqual(
+                    State0,
+                    erline_dht_bucket:handle_response_generic({12,34,92,186}, 6883, <<"n3w_n0d3_h45h6">>, [{ping, <<0,2>>}], false, true, State0)
+                ),
+                ?assertEqual(
+                    2,
+                    meck:num_calls(erline_dht_helper, get_distance, [<<"h45h">>, <<"n3w_n0d3_h45h6">>])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, local_time, [])
+                ),
+                ?assertEqual(
+                    2,
+                    meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', '_'])
+                ),
+                ?assertEqual(
+                    0,
+                    meck:num_calls(erline_dht_db_ets, delete_from_not_assigned_nodes_by_ip_port, ['_', {12,34,92,186}, 6883])
+                ),
+                ?assertEqual(
+                    0,
+                    meck:num_calls(erline_dht_message, send_find_node, [{12,34,92,186}, 6883, sock, <<0,0>>, <<"h45h">>, <<"h45h">>])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_nan_cache, get_amount, [node1])
                 )
             end
         }]
