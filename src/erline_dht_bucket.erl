@@ -50,6 +50,7 @@
     handle_find_node_response/7,
     handle_get_peers_query/6,
     handle_get_peers_response/6,
+    handle_announce_peer_query/7,
     handle_announce_peer_response/6,
     do_ping_async/3,
     do_find_node_async/4,
@@ -636,10 +637,10 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         {error, {non_existing_tx, _TxId}} ->
             State;
         {error, {bad_args, _BadArgs, ReceivedTxId}} ->
-            erline_dht_message:respond_error(Socket, Ip, Port, ReceivedTxId, 203, <<"Invalid arguments">>),
+            erline_dht_message:respond_error(Ip, Port, Socket, ReceivedTxId, 203, <<"Invalid arguments">>),
             State;
         {error, {bad_query, _BadQuery, ReceivedTxId}} ->
-            erline_dht_message:respond_error(Socket, Ip, Port, ReceivedTxId, 204, <<"Method unknown">>),
+            erline_dht_message:respond_error(Ip, Port, Socket, ReceivedTxId, 204, <<"Method unknown">>),
             State;
         {error, {bad_response, _BadResponse}} ->
             State
@@ -944,7 +945,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
 %%  @doc
 %%  Handle announce_peer query from socket.
 %%  @end
--spec handle_announce_peer_query(   % @todo tests
+-spec handle_announce_peer_query(
     Ip              :: inet:ip_address(),
     NodePort        :: inet:port_number(),
     NodeHash        :: binary(),
@@ -981,7 +982,7 @@ handle_announce_peer_query(Ip, NodePort, NodeHash, ImpliedPort, InfoHash, PeerPo
                 _ -> add_peer(InfoHash, Ip, NodePort, State)
             end;
         false ->
-            erline_dht_message:respond_error(Socket, Ip, NodePort, ReceivedTxId, 203, <<"Bad Token">>),
+            ok = erline_dht_message:respond_error(Ip, NodePort, Socket, ReceivedTxId, 203, <<"Bad Token">>),
             State
     end,
     ok = add_node(Name, Ip, NodePort, NodeHash),

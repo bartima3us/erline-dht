@@ -191,7 +191,7 @@ respond_announce_peer(Ip, Port, Socket, TxId, MyNodeHash) ->
 %%  @doc
 %%  Create `error` response and send it.
 %%  @end
-respond_error(Socket, Ip, Port, TxId, ErrorCode, ErrorDescription) ->
+respond_error(Ip, Port, Socket, TxId, ErrorCode, ErrorDescription) ->
     Payload = error_response(TxId, ErrorCode, ErrorDescription),
     ok = socket_send(Socket, Ip, Port, Payload).
 
