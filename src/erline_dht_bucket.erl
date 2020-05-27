@@ -50,7 +50,7 @@
     handle_find_node_response/7,
     handle_get_peers_query/6,
     handle_get_peers_response/6,
-    handle_announce_peer_query/7,
+    handle_announce_peer_query/9,
     handle_announce_peer_response/6,
     do_ping_async/3,
     do_find_node_async/4,
