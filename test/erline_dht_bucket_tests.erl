@@ -892,7 +892,7 @@ handle_announce_peer_query_test_() ->
             ok = meck:expect(erline_dht_message, respond_error, [{12,34,92,155}, 6862, sock, <<0,2>>, 203, <<"Bad Token">>], ok),
             ok = meck:expect(erline_dht_helper, notify, fun
                 (MatchEventMgrPid, {announce_peer, q, {12,34,92,155}, 6862, {<<"n0d3_h45h">>, <<"1nf0_h45h00">>, 6861, <<"t0k3n">>}}) when MatchEventMgrPid =:= EventMgrPid -> ok;
-                (MatchEventMgrPid, {announce_peer, q, {12,34,92,155}, 6862, {<<"n0d3_h45h">>, <<"1nf0_h45h">>, 6861, <<"t0k3n">>}}) when MatchEventMgrPid =:= EventMgrPid -> ok
+                (MatchEventMgrPid, {announce_peer, q, {12,34,92,155}, 6862, {<<"n0d3_h45h">>, <<"1nf0_h45h00">>, 6862, <<"t0k3n">>}}) when MatchEventMgrPid =:= EventMgrPid -> ok
             end),
             ok = meck:expect(erline_dht_helper, local_time, [], {{2020,7,1},{12,0,0}}),
             ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, ['_', {12,34,92,155}, 6862], [#node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, token_sent = <<"t0k3n">>}]),
@@ -928,7 +928,36 @@ handle_announce_peer_query_test_() ->
                     1,
                     meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', #node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, token_sent = <<"t0k3n">>, last_changed = {{2020,7,1},{12,0,0}}}])
                 ),
-                ok = meck:reset([erline_dht_helper, erline_dht_db_ets])
+                ok = meck:reset([erline_dht_message, erline_dht_helper, erline_dht_db_ets])
+            end
+        },
+        {"Handle announce_peer query. Implied port is 1. Sent token is found. ",
+            fun() ->
+                ?assertEqual(
+                    State#state{info_hashes = [#info_hash{info_hash = <<"1nf0_h45h00">>, peers = [{{12,34,92,155},6862}]}]},
+                    erline_dht_bucket:handle_announce_peer_query({12,34,92,155}, 6862, <<"n0d3_h45h">>, 1, <<"1nf0_h45h00">>, 6861, <<"t0k3n">>, <<0,2>>, State)
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_message, respond_announce_peer, [{12,34,92,155}, 6862, sock, <<0,2>>, <<"h45h">>])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, notify, [EventMgrPid, {announce_peer, q, {12,34,92,155}, 6862, {<<"n0d3_h45h">>, <<"1nf0_h45h00">>, 6862, <<"t0k3n">>}}])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_helper, local_time, [])
+                ),
+                ?assertEqual(
+                    2,
+                    meck:num_calls(erline_dht_db_ets, get_not_assigned_node, ['_', {12,34,92,155}, 6862])
+                ),
+                ?assertEqual(
+                    1,
+                    meck:num_calls(erline_dht_db_ets, update_not_assigned_node, ['_', #node{ip_port = {{12,34,92,155}, 6862}, hash = <<"h45h_self">>, token_sent = <<"t0k3n">>, last_changed = {{2020,7,1},{12,0,0}}}])
+                ),
+                ok = meck:reset([erline_dht_message, erline_dht_helper, erline_dht_db_ets])
             end
         }]
     }.
