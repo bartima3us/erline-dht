@@ -928,7 +928,6 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
                     State;
                 % Stop search and save info hashes
                 peers ->
-                    timer:sleep(500), % @todo make proper throttling
                     io:format("GOT VALUES. Token=~p Vals=~p~n", [Token, NodesOrPeers]),
                     ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, Ip, Port, {peers, NewNodeHash, InfoHash, NodesOrPeers}}),
                     lists:foldl(fun (#{ip := FoundIp, port := FoundPort}, StateAcc) ->
