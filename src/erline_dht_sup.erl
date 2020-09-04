@@ -11,7 +11,6 @@
 %% API
 -export([
     start_link/0,
-    start_link/1,
     start/1,
     start/2
 ]).
@@ -55,13 +54,6 @@ start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 
-%%
-%%
-%%
-start_link(RootSupName) ->
-    supervisor:start_link({local, RootSupName}, ?MODULE, []).
-
-
 %%====================================================================
 %% Supervisor callbacks
 %%====================================================================
@@ -70,21 +62,14 @@ start_link(RootSupName) ->
 %%
 %%
 start(Name) ->
-    start(Name, undefined, undefined).
+    start(Name, undefined).
 
-start(Name, RootSupName) ->
-    start(Name, undefined, RootSupName).
-
-start(Name, Port, RootSupName) ->
-    SupName = case RootSupName of
-        undefined   -> ?MODULE;
-        RootSupName -> RootSupName
-    end,
-    Children = supervisor:which_children(SupName),
+start(Name, Port) ->
+    Children = supervisor:which_children(?MODULE),
     case lists:keysearch(?BUCKET_ID(Name), 1, Children) of
         false      ->
-            {ok, _} = supervisor:start_child(SupName, ?BUCKET_SPEC(node1, Port)),
-            {ok, _} = supervisor:start_child(SupName, ?CACHE_SPEC(node1)),
+            {ok, _} = supervisor:start_child(?MODULE, ?BUCKET_SPEC(node1, Port)),
+            {ok, _} = supervisor:start_child(?MODULE, ?CACHE_SPEC(node1)),
             ok;
         {value, _} ->
             ok
