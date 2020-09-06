@@ -101,6 +101,9 @@ dec_dict(Data, Acc) ->
 %%
 %%
 %%
+enc(undefined) ->
+    [];
+
 enc(Int) when is_integer(Int) ->
     IntBin = list_to_binary(integer_to_list(Int)),
     [$i, IntBin, $e];
