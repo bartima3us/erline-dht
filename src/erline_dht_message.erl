@@ -20,7 +20,7 @@
     send_announce_peer/9,
     respond_announce_peer/5,
     respond_error/6,
-    parse_krpc_response/2
+    parse_krpc_response/3
 ]).
 
 -ifdef(TEST).
@@ -34,7 +34,7 @@
     announce_peer_request/6,
     announce_peer_response/2,
     error_response/3,
-    parse_response_dict/3,
+    parse_response_dict/4,
     parse_krpc_arguments/2
 ]).
 -endif.
@@ -201,8 +201,9 @@ respond_error(Ip, Port, Socket, TxId, ErrorCode, ErrorDescription) ->
 %%  Validate everything because network is a Wild West!
 %%  @end
 -spec parse_krpc_response(
-    Response    :: binary(),
-    ActiveTxs   :: [active_tx()]
+    NodeName  :: atom(),
+    Response  :: binary(),
+    ActiveTxs :: [active_tx()]
 ) ->
     {ok, ping, q, NodeHash :: binary(), TxId :: tx_id()} |
     {ok, ping, r, NodeHash :: binary(), NewActiveTx :: [active_tx()]} |
@@ -222,7 +223,7 @@ respond_error(Ip, Port, Socket, TxId, ErrorCode, ErrorDescription) ->
     {error, {non_existing_tx, TxId :: tx_id()}} |
     {error, {bad_response, Response :: term()}}.
 
-parse_krpc_response(Response, ActiveTxs) ->
+parse_krpc_response(NodeName, Response, ActiveTxs) ->
     case erline_dht_bencoding:decode(Response) of
         {ok, {dict, ResponseDict}} ->
             case dict:find(<<"t">>, ResponseDict) of
@@ -239,7 +240,7 @@ parse_krpc_response(Response, ActiveTxs) ->
                                         <<"r">> ->
                                             case dict:find(<<"r">>, ResponseDict) of
                                                 {ok, {dict, R}} ->
-                                                    {ok, ReqType, r, parse_response_dict(ReqType, TxId, R), ActiveTxs -- [ActiveTx]};
+                                                    {ok, ReqType, r, parse_response_dict(ReqType, NodeName, TxId, R), ActiveTxs -- [ActiveTx]};
                                                 MalformedR ->
                                                     {error, {bad_response, MalformedR}}
                                             end;
@@ -469,46 +470,50 @@ error_response(TxId, ErrorCode, ErrorDescription) when
 %%  @end
 -spec parse_response_dict
     (
-        Type    :: ping,
-        TxId    :: tx_id(),
-        Resp    :: dict:dict()
+        Type     :: ping,
+        NodeName :: atom(),
+        TxId     :: tx_id(),
+        Resp     :: dict:dict()
     ) -> NodeHash :: binary();
     (
-        Type    :: find_node,
-        TxId    :: tx_id(),
-        Resp    :: dict:dict()
+        Type     :: find_node,
+        NodeName :: atom(),
+        TxId     :: tx_id(),
+        Resp     :: dict:dict()
     ) -> {NodeHash :: binary(), CompactNodesInfo :: [parsed_compact_node_info()]};
     (
-        Type    :: get_peers,
-        TxId    :: tx_id(),
-        Resp    :: dict:dict()
+        Type     :: get_peers,
+        NodeName :: atom(),
+        TxId     :: tx_id(),
+        Resp     :: dict:dict()
     ) -> {nodes, NodeHash :: binary(), TxId :: tx_id(), Nodes :: [parsed_compact_node_info()], PeerToken :: binary()} |
          {peers, NodeHash :: binary(), TxId :: tx_id(), Peers :: [parsed_peer_info()],         PeerToken :: binary()};
     (
-        Type    :: announce_peer,
-        TxId    :: tx_id(),
-        Resp    :: dict:dict()
+        Type     :: announce_peer,
+        NodeName :: atom(),
+        TxId     :: tx_id(),
+        Resp     :: dict:dict()
     ) -> NodeHash :: binary().
 
-parse_response_dict(ping, _TxId, Resp) ->
+parse_response_dict(ping, _NodeName, _TxId, Resp) ->
     case dict:find(<<"id">>, Resp) of
         {ok, NodeHash} -> NodeHash;
         error          -> <<>>
     end;
 
-parse_response_dict(find_node, _TxId, Resp) ->
+parse_response_dict(find_node, NodeName, _TxId, Resp) ->
     NodeHash = case dict:find(<<"id">>, Resp) of
         {ok, NodeHash0} -> NodeHash0;
         error          -> <<>>
     end,
     case dict:find(<<"nodes">>, Resp) of
         {ok, CompactNodeInfo} ->
-            {NodeHash, erline_dht_helper:decode_compact_node_info(CompactNodeInfo)};
+            {NodeHash, erline_dht_helper:decode_compact_node_info(NodeName, CompactNodeInfo)};
         error ->
             {NodeHash, []}
     end;
 
-parse_response_dict(get_peers, TxId, Resp) ->
+parse_response_dict(get_peers, NodeName, TxId, Resp) ->
     PeerToken = case dict:find(<<"token">>, Resp) of
         {ok, Token} -> Token;
         error       -> <<>>
@@ -524,14 +529,14 @@ parse_response_dict(get_peers, TxId, Resp) ->
         error ->
             case dict:find(<<"nodes">>, Resp) of
                 {ok, CompactNodeInfo} ->
-                    ParsedCompactNodeInfo = erline_dht_helper:decode_compact_node_info(CompactNodeInfo),
+                    ParsedCompactNodeInfo = erline_dht_helper:decode_compact_node_info(NodeName, CompactNodeInfo),
                     {nodes, NodeHash, TxId, ParsedCompactNodeInfo, PeerToken};
                 error ->
                     {nodes, NodeHash, TxId, [], PeerToken}
             end
     end;
 
-parse_response_dict(announce_peer, _TxId, Resp) ->
+parse_response_dict(announce_peer, _NodeName, _TxId, Resp) ->
     case dict:find(<<"id">>, Resp) of
         {ok, NodeHash} -> NodeHash;
         error          -> <<>>

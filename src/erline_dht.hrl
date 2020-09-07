@@ -16,7 +16,7 @@
 -type tx_id()                       :: binary().
 -type active_tx()                   :: {request(), tx_id()}.
 -type distance()                    :: non_neg_integer(). % Normally: 0..160
--type parsed_compact_node_info()    :: #{ip => inet:ip_address(), port => inet:port_number(), hash => binary()}.
+-type parsed_compact_node_info()    :: #{ip => inet:ip_address(), distance => distance(), port => inet:port_number(), hash => binary()}.
 -type parsed_peer_info()            :: #{ip => inet:ip_address(), port => inet:port_number()}.
 
 -record(node, {

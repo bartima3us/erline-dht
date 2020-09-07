@@ -594,7 +594,7 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
             ok = add_node(Name, Ip, Port),
             {false, []}
     end,
-    NewState = case erline_dht_message:parse_krpc_response(Response, ActiveTx) of
+    NewState = case erline_dht_message:parse_krpc_response(Name, Response, ActiveTx) of
         %
         % Handle ping query
         {ok, ping, q, NodeHash, ReceivedTxId} ->
@@ -924,10 +924,11 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
                                 ok = add_node_without_ping(Name, FoundIp, FoundPort, FoundedHash),
                                 ok = get_peers(Name, FoundIp, FoundPort, InfoHash)
                         end
-                    end, NodesOrPeers),
+                    end, lists:sublist(NodesOrPeers, 3)),
                     State;
                 % Stop search and save info hashes
                 peers ->
+                    io:format("~p~n", [NodesOrPeers]),
                     ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, Ip, Port, {peers, NewNodeHash, InfoHash, NodesOrPeers}}),
                     lists:foldl(fun (#{ip := FoundIp, port := FoundPort}, StateAcc) ->
                         ok = add_node_without_ping(Name, FoundIp, FoundPort),
