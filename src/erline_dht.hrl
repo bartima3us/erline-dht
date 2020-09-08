@@ -11,13 +11,14 @@
 -define(APP, erline_dht).
 -define(DEFAULT_DB_MOD, erline_dht_db_ets).
 
--type status()                      :: suspicious | active | not_active.
--type request()                     :: ping | find_node | get_peers | announce.
--type tx_id()                       :: binary().
--type active_tx()                   :: {request(), tx_id()}.
--type distance()                    :: non_neg_integer(). % Normally: 0..160
--type parsed_compact_node_info()    :: #{ip => inet:ip_address(), distance => distance(), port => inet:port_number(), hash => binary()}.
--type parsed_peer_info()            :: #{ip => inet:ip_address(), port => inet:port_number()}.
+-type status()                              :: suspicious | active | not_active.
+-type request()                             :: ping | find_node | get_peers | announce.
+-type tx_id()                               :: binary().
+-type active_tx()                           :: {request(), tx_id()}.
+-type distance()                            :: non_neg_integer(). % Normally: 0..160
+-type parsed_compact_node_info()            :: #{ip => inet:ip_address(), port => inet:port_number(), hash => binary()}.
+-type parsed_compact_node_info_with_dist()  :: #{ip => inet:ip_address(), distance => distance(), port => inet:port_number(), hash => binary()}.
+-type parsed_peer_info()                    :: #{ip => inet:ip_address(), port => inet:port_number()}.
 
 -record(node, {
     ip_port                         :: {inet:ip_address(), inet:port_number()},

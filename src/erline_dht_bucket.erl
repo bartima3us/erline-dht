@@ -583,7 +583,7 @@ handle_cast(_Request, State) ->
 %%--------------------------------------------------------------------
 handle_info({udp, Socket, Ip, Port, Response}, State) ->
     #state{
-        name          = Name,
+        name          = NodeName,
         socket        = Socket,
         event_mgr_pid = EventMgrPid
     } = State,
@@ -591,10 +591,10 @@ handle_info({udp, Socket, Ip, Port, Response}, State) ->
         {ok, NodeBucket, #node{active_txs = NodeActiveTx}} ->
             {NodeBucket, NodeActiveTx};
         false ->
-            ok = add_node(Name, Ip, Port),
+            ok = add_node(NodeName, Ip, Port),
             {false, []}
     end,
-    NewState = case erline_dht_message:parse_krpc_response(Name, Response, ActiveTx) of
+    NewState = case erline_dht_message:parse_krpc_response(Response, ActiveTx) of
         %
         % Handle ping query
         {ok, ping, q, NodeHash, ReceivedTxId} ->
@@ -915,6 +915,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
                 % Continue search
                 nodes ->
                     ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, Ip, Port, {nodes, NewNodeHash, InfoHash, NodesOrPeers}}),
+                    SortedNodes = add_distance_to_nodes(NodesOrPeers, State),
                     ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
                         % Check whether we already have that node in ETS
                         case DbMod:get_requested_node(Name, FoundIp, FoundPort, InfoHash) of
@@ -924,11 +925,11 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
                                 ok = add_node_without_ping(Name, FoundIp, FoundPort, FoundedHash),
                                 ok = get_peers(Name, FoundIp, FoundPort, InfoHash)
                         end
-                    end, lists:sublist(NodesOrPeers, 3)),
+                    end, lists:sublist(SortedNodes, 3)),
                     State;
                 % Stop search and save info hashes
                 peers ->
-                    io:format("~p~n", [NodesOrPeers]),
+%%                    io:format("~p~n", [NodesOrPeers]),
                     ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, Ip, Port, {peers, NewNodeHash, InfoHash, NodesOrPeers}}),
                     lists:foldl(fun (#{ip := FoundIp, port := FoundPort}, StateAcc) ->
                         ok = add_node_without_ping(Name, FoundIp, FoundPort),
@@ -1708,6 +1709,35 @@ clear_not_assigned_nodes(Distance, #state{name = Name, db_mod = DbMod, nan_per_b
         _ ->
             ok
     end.
+
+
+%%  @private
+%%  @doc
+%%  Add distance metric (from node hash to info hash) to parsed compact nodes list.
+%%  @end
+-spec add_distance_to_nodes(
+    Nodes :: parsed_compact_node_info(),
+    State :: #state{}
+) -> parsed_compact_node_info_with_dist().
+
+add_distance_to_nodes(Nodes, #state{name = NodeName, db_mod = DbMod, my_node_hash = MyNodeHash}) ->
+    NodesWithDist = case lists:reverse(DbMod:get_all_get_peers_searches(NodeName)) of
+        [#get_peers_search{info_hash = InfoHash} | _] ->
+            lists:map(fun (NodeInfo = #{hash := NodeHash}) ->
+                case erline_dht_helper:get_distance(InfoHash, NodeHash) of
+                    {ok, Distance} -> NodeInfo#{distance => Distance};
+                    {error, _}     -> NodeInfo#{distance => erlang:bit_size(MyNodeHash)}
+                end
+            end, Nodes);
+        [] ->
+            lists:map(fun (NodeInfo) ->
+                NodeInfo#{distance => erlang:bit_size(MyNodeHash)}
+            end, Nodes)
+    end,
+    % Sort by distance (nearest first)
+    lists:sort(fun (#{distance := Distance1}, #{distance := Distance2}) ->
+        Distance1 =< Distance2
+    end, NodesWithDist).
 
 
 %%  @private

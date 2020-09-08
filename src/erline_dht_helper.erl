@@ -14,7 +14,7 @@
 -export([
     get_distance/2,
     encode_compact_node_info/1,
-    decode_compact_node_info/2,
+    decode_compact_node_info/1,
     encode_peer_info/1,
     decode_peer_info/1,
     datetime_diff/2,
@@ -92,40 +92,26 @@ encode_compact_node_info(Nodes) ->
 %%  Returns order list by closest nodes first.
 %%  @end
 -spec decode_compact_node_info(
-    SearchingHash :: binary(),
-    Info          :: binary()
+    Info :: binary()
 ) -> [ParsedCompactNodeInfo :: parsed_compact_node_info()].
 
-decode_compact_node_info(NodeName, Info) ->
-    decode_compact_node_info(NodeName, Info, []).
+decode_compact_node_info(Info) ->
+    decode_compact_node_info(Info, []).
 
-decode_compact_node_info(_NodeName, <<>>, Result) ->
-    lists:sort(fun (#{distance := Distance1}, #{distance := Distance2}) ->
-        Distance1 =< Distance2
-    end, Result);
+decode_compact_node_info(<<>>, Result) ->
+    Result;
 
-decode_compact_node_info(NodeName, <<Hash:20/binary, Ip:4/binary, Port:2/binary, Rest/binary>>, Result) ->
-    % @todo fix
-    SearchingHash = case lists:reverse(erline_dht_db_ets:get_all_get_peers_searches(NodeName)) of
-        [#get_peers_search{info_hash = LastHash} | _] -> LastHash;
-        [] -> Hash
-    end,
+decode_compact_node_info(<<Hash:20/binary, Ip:4/binary, Port:2/binary, Rest/binary>>, Result) ->
     <<PortInt:16>> = Port,
     <<Oct1:8, Oct2:8, Oct3:8, Oct4:8>> = Ip,
-    case get_distance(SearchingHash, Hash) of
-        {ok, Distance} ->
-            Node = #{
-                hash     => Hash,
-                distance => Distance,
-                ip       => {Oct1, Oct2, Oct3, Oct4},
-                port     => PortInt
-            },
-            decode_compact_node_info(NodeName, Rest, [Node | Result]);
-        {error, _Reason} ->
-            decode_compact_node_info(NodeName, Rest, Result)
-    end;
+    Node = #{
+        hash     => Hash,
+        ip       => {Oct1, Oct2, Oct3, Oct4},
+        port     => PortInt
+    },
+    decode_compact_node_info(Rest, [Node | Result]);
 
-decode_compact_node_info(_NodeName, _Other, Result) ->
+decode_compact_node_info(_Other, Result) ->
     Result.
 
 
