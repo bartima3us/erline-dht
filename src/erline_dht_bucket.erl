@@ -29,6 +29,7 @@
     get_not_assigned_nodes/2,
     get_buckets_filling/1,
     set_peer_port/2,
+    get_info_hashes/1,
     stop/1
 ]).
 
@@ -323,6 +324,17 @@ set_peer_port(Name, Port) ->
 
 
 %%  @doc
+%%  Get info hashes with their peers.
+%%  @end
+-spec get_info_hashes(
+    Name :: atom()
+) -> [#{info_hash => binary(), peers => [{inet:ip_address(), inet:port_number()}]}].
+
+get_info_hashes(Name) ->
+    gen_server:call(Name, get_info_hashes).
+
+
+%%  @doc
 %%  Stop the process
 %%  @end
 -spec stop(
@@ -476,7 +488,14 @@ handle_call(get_buckets_filling, _From, State = #state{buckets = Buckets}) ->
     {reply, Response, State};
 
 handle_call({set_peer_port, Port}, _From, State = #state{}) ->
-    {reply, ok, State#state{peer_port = Port}}.
+    {reply, ok, State#state{peer_port = Port}};
+
+handle_call(get_info_hashes, _From, State = #state{info_hashes = InfoHashes}) ->
+    InfoHashesResult = lists:map(fun (#info_hash{info_hash = InfoHash, peers = Peers}) ->
+        #{info_hash => InfoHash, peers => Peers}
+    end, InfoHashes),
+    {reply, InfoHashesResult, State}.
+
 
 %%--------------------------------------------------------------------
 %% @private
@@ -1721,6 +1740,7 @@ clear_not_assigned_nodes(Distance, #state{name = Name, db_mod = DbMod, nan_per_b
 ) -> parsed_compact_node_info_with_dist().
 
 add_distance_to_nodes(Nodes, #state{name = NodeName, db_mod = DbMod, my_node_hash = MyNodeHash}) ->
+    % @todo fix
     NodesWithDist = case lists:reverse(DbMod:get_all_get_peers_searches(NodeName)) of
         [#get_peers_search{info_hash = InfoHash} | _] ->
             lists:map(fun (NodeInfo = #{hash := NodeHash}) ->
