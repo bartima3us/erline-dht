@@ -139,6 +139,13 @@ erline_dht:get_hash(
 ) -> Hash :: binary().
 ```
 
+Return all known info hashes and their peers IP and port:
+```
+erline_dht:get_info_hashes(
+    NodeName :: atom()
+) -> [#{info_hash => binary(), peers => [{inet:ip_address(), inet:port_number()}]}].
+```
+
 Return event manager pid:
 ```
 erline_dht:get_event_mgr_pid(

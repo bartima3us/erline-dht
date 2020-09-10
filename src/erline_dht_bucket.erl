@@ -90,6 +90,7 @@
 -define(GET_PEERS_SEARCH_TTL, 20). % 20 s
 -define(SUSPICIOUS_TTL, 900). % 15 min (ACTIVE_TTL + 1 min)
 -define(GET_NOT_ASSIGNED_NODES_CALL_TIMEOUT, 15000).
+-define(NEAREST_NODES_FOR_NEXT_ITERATION, 3).
 
 -record(bucket, {
     distance            :: distance(),
@@ -944,7 +945,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
                                 ok = add_node_without_ping(Name, FoundIp, FoundPort, FoundedHash),
                                 ok = get_peers(Name, FoundIp, FoundPort, InfoHash)
                         end
-                    end, lists:sublist(SortedNodes, 3)),
+                    end, lists:sublist(SortedNodes, ?NEAREST_NODES_FOR_NEXT_ITERATION)),
                     State;
                 % Stop search and save info hashes
                 peers ->
