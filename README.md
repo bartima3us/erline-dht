@@ -232,6 +232,12 @@ EventMgrPid = erline_dht:get_event_mgr_pid(NodeName).
 gen_event:add_handler(EventMgrPid, your_dht_event_handler, []).
 ```
 
+Or you can always use event manager name, which is registered as atom: `'erline_dht_[YOUR_NODE_NAME]$event_manager'`. For example:
+
+```
+gen_event:add_handler('erline_dht_node1$event_manager', your_dht_event_handler, []).
+```
+
 Events which should be handled in the attached handler:
 
 Received ping query from the node:

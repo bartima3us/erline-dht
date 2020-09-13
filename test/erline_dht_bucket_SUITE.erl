@@ -79,8 +79,7 @@ test_basic(_Config) ->
     HashNode3 = erline_dht_bucket:get_hash(PidNode3),
     %
     % Node1 event manager
-    EventMgrPid1 = erline_dht:get_event_mgr_pid(node1),
-    gen_event:add_handler(EventMgrPid1, erline_dht_event_handler, []),
+    gen_event:add_handler('erline_dht_node1$event_manager', erline_dht_event_handler, []),
     %
     % Node2 event manager
     EventMgrPid2 = erline_dht:get_event_mgr_pid(node2),

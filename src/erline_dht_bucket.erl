@@ -390,6 +390,8 @@ init([NodeName, PortArg]) ->
     ok = DbMod:init(NodeName),
     % Start event manager
     {ok, EventMgrPid} = gen_event:start_link(),
+    EventMgrName = "erline_dht_" ++ erlang:atom_to_list(NodeName) ++ "$event_manager",
+    true = erlang:register(erlang:list_to_atom(EventMgrName), EventMgrPid),
     % Schedule nodes clearing scheduler if necessary
     ClearNotAssignedRef = case erline_dht:get_env(NodeName, limit_nodes, true) of
         true  -> schedule_clear_not_assigned_nodes();
