@@ -928,7 +928,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
     } = State,
     NewState0 = case DbMod:get_info_hash(Name, Ip, Port, TxId) of
         false ->
-            % Responded with info hash which we do not have in a search state
+            % We've received a response with info hash which we do not have in a search state
             State;
         InfoHash ->
             % Update last_changed
@@ -937,7 +937,7 @@ handle_get_peers_response(Ip, Port, GetPeersResp, NewActiveTx, Bucket, State) ->
                 % Continue search
                 nodes ->
                     ok = erline_dht_helper:notify(EventMgrPid, {get_peers, r, Ip, Port, {nodes, NewNodeHash, InfoHash, NodesOrPeers}}),
-                    SortedNodes = add_distance_to_nodes(NodesOrPeers, State),
+                    SortedNodes = add_distance_to_nodes(NodesOrPeers, InfoHash, State),
                     ok = lists:foreach(fun (#{ip := FoundIp, port := FoundPort, hash := FoundedHash}) ->
                         % Check whether we already have that node in ETS
                         case DbMod:get_requested_node(Name, FoundIp, FoundPort, InfoHash) of
@@ -1738,25 +1738,18 @@ clear_not_assigned_nodes(Distance, #state{name = Name, db_mod = DbMod, nan_per_b
 %%  Add distance metric (from node hash to info hash) to parsed compact nodes list.
 %%  @end
 -spec add_distance_to_nodes(
-    Nodes :: parsed_compact_node_info(),
-    State :: #state{}
+    Nodes    :: parsed_compact_node_info(),
+    InfoHash :: binary(),
+    State    :: #state{}
 ) -> parsed_compact_node_info_with_dist().
 
-add_distance_to_nodes(Nodes, #state{name = NodeName, db_mod = DbMod, my_node_hash = MyNodeHash}) ->
-    % @todo fix
-    NodesWithDist = case lists:reverse(DbMod:get_all_get_peers_searches(NodeName)) of
-        [#get_peers_search{info_hash = InfoHash} | _] ->
-            lists:map(fun (NodeInfo = #{hash := NodeHash}) ->
-                case erline_dht_helper:get_distance(InfoHash, NodeHash) of
-                    {ok, Distance} -> NodeInfo#{distance => Distance};
-                    {error, _}     -> NodeInfo#{distance => erlang:bit_size(MyNodeHash)}
-                end
-            end, Nodes);
-        [] ->
-            lists:map(fun (NodeInfo) ->
-                NodeInfo#{distance => erlang:bit_size(MyNodeHash)}
-            end, Nodes)
-    end,
+add_distance_to_nodes(Nodes, InfoHash, #state{my_node_hash = MyNodeHash}) ->
+    NodesWithDist = lists:map(fun (NodeInfo = #{hash := NodeHash}) ->
+        case erline_dht_helper:get_distance(InfoHash, NodeHash) of
+            {ok, Distance} -> NodeInfo#{distance => Distance};
+            {error, _}     -> NodeInfo#{distance => erlang:bit_size(MyNodeHash)}
+        end
+    end, Nodes),
     % Sort by distance (nearest first)
     lists:sort(fun (#{distance := Distance1}, #{distance := Distance2}) ->
         Distance1 =< Distance2
