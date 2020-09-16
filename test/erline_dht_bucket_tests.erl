@@ -665,7 +665,12 @@ handle_get_peers_response_test_() ->
                     -> ok
             end),
             ok = meck:expect(erline_dht_helper, local_time, [], {{2020,7,1},{12,0,0}}),
-            ok = meck:expect(erline_dht_helper, get_distance, [<<"h45h">>, <<"n0d3_h45h">>], {ok, 2}),
+            ok = meck:expect(erline_dht_helper, get_distance, fun
+                (<<"h45h">>, <<"n0d3_h45h">>)  -> {ok, 2};
+                (<<"1nf0_h45h">>, <<"h45h1">>) -> {ok, 1};
+                (<<"1nf0_h45h">>, <<"h45h2">>) -> {ok, 2};
+                (<<"1nf0_h45h">>, <<"h45h3">>) -> {ok, 3}
+            end),
             ok = meck:expect(erline_dht_db_ets, get_not_assigned_node, fun
                 (_, {12,34,92,153}, 6860) -> [];
                 (_, {12,34,92,154}, 6861) -> []
