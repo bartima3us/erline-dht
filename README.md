@@ -272,7 +272,7 @@ Received error response from the node:
 
 ## <a name="status">Status</a> ##
 
-Working is in progress.
+Testing is in progress.
 
 ## <a name="tests">Tests</a> ##
 
