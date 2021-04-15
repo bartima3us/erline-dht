@@ -270,10 +270,6 @@ Received announce_peer response from the node:
 Received error response from the node:
 * ```{error, r, Ip :: inet:ip_address(), Port :: inet:port_number(), {ErrorCode :: 201 | 202 | 203 | 204, ErrorReason :: binary()}```
 
-## <a name="status">Status</a> ##
-
-Testing is in progress.
-
 ## <a name="tests">Tests</a> ##
 
 EUnit and CT tests
